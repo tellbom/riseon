@@ -2,6 +2,7 @@ import SwiftUI
 
 struct QuoteDetailView: View {
     let code: String
+
     private let onQuoteLoaded: ((Quote) -> Void)?
 
     @StateObject private var viewModel: QuoteDetailViewModel
@@ -11,10 +12,7 @@ struct QuoteDetailView: View {
         self.onQuoteLoaded = onQuoteLoaded
         let symbol = StockSymbol(code: code)!
         _viewModel = StateObject(
-            wrappedValue: QuoteDetailViewModel(
-                symbol: symbol,
-                provider: TencentQuoteProvider()
-            )
+            wrappedValue: QuoteDetailViewModel(symbol: symbol, provider: TencentQuoteProvider())
         )
     }
 
@@ -23,8 +21,8 @@ struct QuoteDetailView: View {
             switch viewModel.state {
             case .idle:
                 Color.clear
-                    .task {
-                        viewModel.refresh()
+                    .onAppear {
+                        viewModel.startAutoRefresh()
                     }
             case .loading:
                 loadingView
@@ -39,6 +37,26 @@ struct QuoteDetailView: View {
         }
         .navigationTitle(code)
         .navigationBarTitleDisplayMode(.inline)
+        .onChange(of: viewModel.state) { _, newState in
+            if case .loaded(let quote) = newState {
+                onQuoteLoaded?(quote)
+            }
+        }
+        .onAppear {
+            viewModel.startAutoRefresh()
+        }
+        .onDisappear {
+            viewModel.stopAutoRefresh()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .stockDetailRefreshPage0)) { _ in
+            viewModel.refresh()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .stockDetailStartPage0)) { _ in
+            viewModel.startAutoRefresh()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .stockDetailStopPage0)) { _ in
+            viewModel.stopAutoRefresh()
+        }
     }
 
     private var loadingView: some View {
@@ -63,7 +81,7 @@ struct QuoteDetailView: View {
                 .multilineTextAlignment(.center)
                 .lineLimit(3)
             Button {
-                viewModel.refresh()
+                viewModel.startAutoRefresh()
             } label: {
                 Label("重试", systemImage: "arrow.clockwise")
             }
@@ -76,6 +94,7 @@ struct QuoteDetailView: View {
     private func quoteScrollView(_ quote: Quote) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
+                refreshBadge
                 headerSection(quote)
                 Divider().padding(.vertical, 6)
                 coreFieldsSection(quote)
@@ -84,11 +103,25 @@ struct QuoteDetailView: View {
                     Divider().padding(.vertical, 6)
                     orderBookSection(book)
                 }
-
-                refreshButton
             }
             .padding(.horizontal, 4)
         }
+    }
+
+    private var refreshBadge: some View {
+        HStack(spacing: 4) {
+            Circle()
+                .fill(.green)
+                .frame(width: 5, height: 5)
+            Text("自动刷新 · 每10秒")
+                .font(.system(size: 8))
+                .foregroundStyle(.secondary)
+            Spacer()
+            Text(Date(), style: .time)
+                .font(.system(size: 8).monospacedDigit())
+                .foregroundStyle(.secondary)
+        }
+        .padding(.bottom, 4)
     }
 
     private func headerSection(_ quote: Quote) -> some View {
@@ -117,11 +150,7 @@ struct QuoteDetailView: View {
     private func coreFieldsSection(_ quote: Quote) -> some View {
         VStack(spacing: 4) {
             FieldRow(label: "代码", value: quote.symbol.code)
-            FieldRow(
-                label: "涨跌",
-                value: quote.changeAmount.changeAmountFormatted,
-                valueColor: quote.changeColor
-            )
+            FieldRow(label: "涨跌", value: quote.changeAmount.changeAmountFormatted, valueColor: quote.changeColor)
             FieldRow(label: "今开", value: quote.open.priceFormatted)
             FieldRow(label: "最高", value: quote.high.priceFormatted)
             FieldRow(label: "最低", value: quote.low.priceFormatted)
@@ -157,19 +186,6 @@ struct QuoteDetailView: View {
             }
         }
         .accessibilityLabel("委托明细，\(book.bids.count)档买盘，\(book.asks.count)档卖盘")
-    }
-
-    private var refreshButton: some View {
-        Button {
-            viewModel.refresh()
-        } label: {
-            Label("刷新", systemImage: "arrow.clockwise")
-                .font(.caption)
-        }
-        .buttonStyle(.bordered)
-        .frame(maxWidth: .infinity)
-        .padding(.top, 8)
-        .accessibilityLabel("手动刷新行情")
     }
 }
 
