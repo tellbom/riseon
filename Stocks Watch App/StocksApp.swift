@@ -9,9 +9,14 @@ import SwiftUI
 
 @main
 struct Stocks_Watch_AppApp: App {
+    @StateObject private var store = WatchlistStore()
+
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            WatchlistWatchView(store: store)
+                .onAppear {
+                    WatchSyncManager.shared.configure(store: store)
+                }
         }
     }
 }
