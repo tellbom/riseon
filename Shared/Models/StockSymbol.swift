@@ -5,11 +5,11 @@ public struct StockSymbol: Hashable, Codable, Sendable {
     public let code: String
     public let prefix: String
 
-    public var fullSymbol: String {
+    public nonisolated var fullSymbol: String {
         prefix + code
     }
 
-    public init?(code: String) {
+    public nonisolated init?(code: String) {
         let trimmed = code.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, let first = trimmed.first else {
             return nil

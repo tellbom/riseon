@@ -4,32 +4,40 @@ import Foundation
 /// Persists the ordered watchlist of stock codes in UserDefaults.
 @MainActor
 public final class WatchlistStore: ObservableObject {
-    @Published public private(set) var codes: [String]
+    @Published public private(set) var items: [WatchlistItem]
+
+    public var codes: [String] {
+        items.map(\.code)
+    }
 
     private let defaults: UserDefaults
     private let key: String
+    private let legacyCodesKey = "watchlist_codes"
 
-    public init(suiteName: String? = nil, key: String = "watchlist_codes") {
+    public init(suiteName: String? = nil, key: String = "watchlist_items_v2") {
         self.defaults = suiteName.flatMap { UserDefaults(suiteName: $0) } ?? .standard
         self.key = key
-        self.codes = Self.normalized(defaults.array(forKey: key) as? [String] ?? [])
+        self.items = Self.normalizedItems(Self.loadItems(defaults: defaults, key: key, legacyCodesKey: legacyCodesKey))
     }
 
     /// Appends a code if it is non-empty and not already present.
     public func add(_ code: String) {
-        let normalizedCode = Self.normalizedCode(code)
-        guard let normalizedCode, !codes.contains(normalizedCode) else {
-            return
-        }
+        add(code: code)
+    }
 
-        codes.append(normalizedCode)
+    /// Appends a code and display name if the code is non-empty and not already present.
+    public func add(code: String, name: String = "") {
+        guard let normalizedCode = Self.normalizedCode(code),
+              !items.contains(where: { $0.code == normalizedCode }) else { return }
+
+        items.append(WatchlistItem(code: normalizedCode, name: name.trimmingCharacters(in: .whitespacesAndNewlines)))
         save()
     }
 
     /// Removes codes at the given offsets, matching SwiftUI List onDelete semantics.
     public func remove(at offsets: IndexSet) {
-        for index in offsets.sorted(by: >) where codes.indices.contains(index) {
-            codes.remove(at: index)
+        for index in offsets.sorted(by: >) where items.indices.contains(index) {
+            items.remove(at: index)
         }
         save()
     }
@@ -40,31 +48,71 @@ public final class WatchlistStore: ObservableObject {
             return
         }
 
-        codes.removeAll { $0 == normalizedCode }
+        items.removeAll { $0.code == normalizedCode }
         save()
     }
 
     /// Replaces the whole watchlist, preserving first-seen order and removing duplicates.
     public func replace(with newCodes: [String]) {
-        codes = Self.normalized(newCodes)
+        items = Self.normalizedItems(newCodes.map { WatchlistItem(code: $0) })
+        save()
+    }
+
+    /// Replaces the whole watchlist with code and name pairs.
+    public func replace(with newItems: [WatchlistItem]) {
+        items = Self.normalizedItems(newItems)
+        save()
+    }
+
+    public func updateName(_ name: String, for code: String) {
+        guard let normalizedCode = Self.normalizedCode(code),
+              let index = items.firstIndex(where: { $0.code == normalizedCode }) else {
+            return
+        }
+
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard items[index].name != trimmedName else {
+            return
+        }
+
+        items[index].name = trimmedName
         save()
     }
 
     private func save() {
-        defaults.set(codes, forKey: key)
+        guard let data = try? JSONEncoder().encode(items) else {
+            return
+        }
+
+        defaults.set(data, forKey: key)
     }
 
-    private static func normalized(_ codes: [String]) -> [String] {
-        var seen = Set<String>()
-        var result: [String] = []
+    private static func loadItems(defaults: UserDefaults, key: String, legacyCodesKey: String) -> [WatchlistItem] {
+        if let data = defaults.data(forKey: key),
+           let decoded = try? JSONDecoder().decode([WatchlistItem].self, from: data) {
+            return decoded
+        }
 
-        for code in codes {
-            guard let normalizedCode = normalizedCode(code),
+        let legacyCodes = defaults.array(forKey: legacyCodesKey) as? [String] ?? []
+        return legacyCodes.map { WatchlistItem(code: $0) }
+    }
+
+    private static func normalizedItems(_ items: [WatchlistItem]) -> [WatchlistItem] {
+        var seen = Set<String>()
+        var result: [WatchlistItem] = []
+
+        for item in items {
+            guard let normalizedCode = normalizedCode(item.code),
                   seen.insert(normalizedCode).inserted else {
                 continue
             }
 
-            result.append(normalizedCode)
+            result.append(
+                WatchlistItem(
+                    code: normalizedCode,
+                    name: item.name.trimmingCharacters(in: .whitespacesAndNewlines)
+                )
+            )
         }
 
         return result

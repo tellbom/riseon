@@ -18,8 +18,8 @@ struct RiseOnApp: App {
     var body: some Scene {
         WindowGroup {
             WatchlistView(store: store)
-                .onReceive(store.$codes) { codes in
-                    PhoneSyncManager.shared.push(codes: codes)
+                .onReceive(store.$items) { items in
+                    PhoneSyncManager.shared.push(items: items)
                 }
         }
     }

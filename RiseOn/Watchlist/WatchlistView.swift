@@ -11,7 +11,7 @@ struct WatchlistView: View {
     var body: some View {
         NavigationStack {
             Group {
-                if viewModel.codes.isEmpty {
+                if viewModel.items.isEmpty {
                     emptyState
                 } else {
                     stockList
@@ -45,9 +45,9 @@ struct WatchlistView: View {
 
     private var stockList: some View {
         List {
-            ForEach(viewModel.codes, id: \.self) { code in
-                StockRowView(code: code)
-                    .accessibilityLabel("股票代码 \(code)")
+            ForEach(viewModel.items) { item in
+                StockRowView(item: item)
+                    .accessibilityLabel("\(item.name.isEmpty ? item.code : item.name)，代码 \(item.code)")
             }
             .onDelete(perform: viewModel.remove)
         }
@@ -56,12 +56,18 @@ struct WatchlistView: View {
 }
 
 private struct StockRowView: View {
-    let code: String
+    let item: WatchlistItem
 
     var body: some View {
         HStack {
-            Text(code)
-                .font(.body.monospacedDigit())
+            VStack(alignment: .leading, spacing: 2) {
+                if !item.name.isEmpty {
+                    Text(item.name)
+                }
+                Text(item.code)
+                    .font(item.name.isEmpty ? .body.monospacedDigit() : .caption.monospacedDigit())
+                    .foregroundStyle(item.name.isEmpty ? .primary : .secondary)
+            }
             Spacer()
             Image(systemName: "chevron.right")
                 .foregroundStyle(.secondary)

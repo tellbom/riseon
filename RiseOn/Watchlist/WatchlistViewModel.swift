@@ -3,18 +3,26 @@ import Foundation
 
 @MainActor
 final class WatchlistViewModel: ObservableObject {
-    @Published private(set) var codes: [String] = []
+    @Published private(set) var items: [WatchlistItem] = []
     @Published private(set) var addError: String?
 
     private let store: WatchlistStore
 
+    var codes: [String] {
+        items.map(\.code)
+    }
+
     init(store: WatchlistStore) {
         self.store = store
-        store.$codes
-            .assign(to: &$codes)
+        store.$items
+            .assign(to: &$items)
     }
 
     func add(code: String) {
+        add(code: code, name: "")
+    }
+
+    func add(code: String, name: String) {
         let trimmed = code.trimmingCharacters(in: .whitespacesAndNewlines)
 
         guard !trimmed.isEmpty else {
@@ -27,12 +35,12 @@ final class WatchlistViewModel: ObservableObject {
             return
         }
 
-        guard !codes.contains(trimmed) else {
+        guard !items.contains(where: { $0.code == trimmed }) else {
             addError = "\(trimmed) 已在自选列表中"
             return
         }
 
-        store.add(trimmed)
+        store.add(code: trimmed, name: name)
         addError = nil
     }
 

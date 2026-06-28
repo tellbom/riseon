@@ -29,13 +29,24 @@ final class WatchSyncManager: NSObject {
     }
 
     private func applyContext(_ context: [String: Any]) {
-        guard let codes = context["watchlist"] as? [String] else {
+        let items: [WatchlistItem]
+
+        if let payload = context["watchlist_items"] as? [[String: String]] {
+            items = payload.compactMap { dictionary in
+                guard let code = dictionary["code"] else {
+                    return nil
+                }
+                return WatchlistItem(code: code, name: dictionary["name"] ?? "")
+            }
+        } else if let codes = context["watchlist"] as? [String] {
+            items = codes.map { WatchlistItem(code: $0) }
+        } else {
             return
         }
 
-        print("[WatchSyncManager] Received watchlist: \(codes)")
+        print("[WatchSyncManager] Received watchlist items: \(items.map(\.code))")
         Task { @MainActor in
-            self.store?.replace(with: codes)
+            self.store?.replace(with: items)
         }
     }
 }

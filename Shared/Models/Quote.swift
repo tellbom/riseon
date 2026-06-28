@@ -5,7 +5,7 @@ public struct Level: Hashable, Codable, Sendable {
     public let price: Double
     public let volume: Int
 
-    public init(price: Double, volume: Int) {
+    public nonisolated init(price: Double, volume: Int) {
         self.price = price
         self.volume = volume
     }
@@ -16,7 +16,7 @@ public struct OrderBook: Hashable, Codable, Sendable {
     public let bids: [Level]
     public let asks: [Level]
 
-    public init(bids: [Level], asks: [Level]) {
+    public nonisolated init(bids: [Level], asks: [Level]) {
         self.bids = bids
         self.asks = asks
     }
@@ -36,7 +36,7 @@ public struct Quote: Hashable, Codable, Sendable {
     public let updatedAt: Date
     public let orderBook: OrderBook?
 
-    public init(
+    public nonisolated init(
         symbol: StockSymbol,
         name: String,
         price: Double,

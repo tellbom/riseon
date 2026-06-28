@@ -6,7 +6,7 @@ struct WatchlistWatchView: View {
     var body: some View {
         NavigationStack {
             Group {
-                if store.codes.isEmpty {
+                if store.items.isEmpty {
                     emptyState
                 } else {
                     stockList
@@ -31,14 +31,21 @@ struct WatchlistWatchView: View {
     }
 
     private var stockList: some View {
-        List(store.codes, id: \.self) { code in
+        List(store.items) { item in
             NavigationLink {
-                QuoteDetailView(code: code)
+                StockDetailContainerView(code: item.code)
             } label: {
-                Text(code)
-                    .font(.body.monospacedDigit())
+                VStack(alignment: .leading, spacing: 2) {
+                    if !item.name.isEmpty {
+                        Text(item.name)
+                            .lineLimit(1)
+                    }
+                    Text(item.code)
+                        .font(item.name.isEmpty ? .body.monospacedDigit() : .caption.monospacedDigit())
+                        .foregroundStyle(item.name.isEmpty ? .primary : .secondary)
+                }
             }
-            .accessibilityLabel("查看股票 \(code) 行情")
+            .accessibilityLabel("查看 \(item.name.isEmpty ? item.code : item.name) 行情")
         }
     }
 }

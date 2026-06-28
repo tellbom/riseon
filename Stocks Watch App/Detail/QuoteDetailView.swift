@@ -2,11 +2,13 @@ import SwiftUI
 
 struct QuoteDetailView: View {
     let code: String
+    private let onQuoteLoaded: ((Quote) -> Void)?
 
     @StateObject private var viewModel: QuoteDetailViewModel
 
-    init(code: String) {
+    init(code: String, onQuoteLoaded: ((Quote) -> Void)? = nil) {
         self.code = code
+        self.onQuoteLoaded = onQuoteLoaded
         let symbol = StockSymbol(code: code)!
         _viewModel = StateObject(
             wrappedValue: QuoteDetailViewModel(
@@ -28,6 +30,9 @@ struct QuoteDetailView: View {
                 loadingView
             case .loaded(let quote):
                 quoteScrollView(quote)
+                    .onAppear {
+                        onQuoteLoaded?(quote)
+                    }
             case .error(let message):
                 errorView(message)
             }

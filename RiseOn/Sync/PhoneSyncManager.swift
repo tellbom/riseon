@@ -4,7 +4,7 @@ import WatchConnectivity
 final class PhoneSyncManager: NSObject {
     static let shared = PhoneSyncManager()
 
-    private var pendingCodes: [String]?
+    private var pendingItems: [WatchlistItem]?
 
     private override init() {
         super.init()
@@ -22,20 +22,25 @@ final class PhoneSyncManager: NSObject {
     }
 
     func push(codes: [String]) {
+        push(items: codes.map { WatchlistItem(code: $0) })
+    }
+
+    func push(items: [WatchlistItem]) {
         guard WCSession.isSupported() else {
             return
         }
 
         let session = WCSession.default
         guard session.activationState == .activated else {
-            pendingCodes = codes
+            pendingItems = items
             print("[PhoneSyncManager] Session is not activated; skipping watchlist push")
             return
         }
 
+        let payload = items.map { ["code": $0.code, "name": $0.name] }
         do {
-            try session.updateApplicationContext(["watchlist": codes])
-            print("[PhoneSyncManager] Pushed watchlist: \(codes)")
+            try session.updateApplicationContext(["watchlist_items": payload])
+            print("[PhoneSyncManager] Pushed watchlist items: \(items.map(\.code))")
         } catch {
             print("[PhoneSyncManager] Failed to push watchlist: \(error.localizedDescription)")
         }
@@ -52,9 +57,9 @@ extension PhoneSyncManager: WCSessionDelegate {
             print("[PhoneSyncManager] Activation failed: \(error.localizedDescription)")
         } else {
             print("[PhoneSyncManager] Activated with state: \(activationState.rawValue)")
-            if let pendingCodes {
-                self.pendingCodes = nil
-                push(codes: pendingCodes)
+            if let pendingItems {
+                self.pendingItems = nil
+                push(items: pendingItems)
             }
         }
     }
