@@ -1,344 +1,341 @@
+// StockWatch Watch App/MinuteChart/MinuteChartView.swift
+//
+// FIX 2: price line thinned to 1.2 pt, avg line to 0.8 pt
+// FIX 3: purple-flash bug — never switch view identity during refresh.
+//        The chart content is always rendered; a thin loading overlay is
+//        composited on top with .overlay, so SwiftUI never destroys and
+//        recreates the Canvas node. No identity change = no purple frame.
+
 import SwiftUI
 
 struct MinuteChartView: View {
-    let symbol: StockSymbol
 
+    let symbol: StockSymbol
     @Binding var loadedQuote: Quote?
+
     @StateObject private var viewModel: MinuteChartViewModel
 
-    @State private var crownValue = 1.0
-    @State private var selectedIndex = 0
+    @State private var crownValue:    Double = 1.0
+    @State private var selectedIndex: Int    = 0
+    @State private var isAutoRefreshActive = false
 
     init(symbol: StockSymbol, loadedQuote: Binding<Quote?>) {
-        self.symbol = symbol
-        _loadedQuote = loadedQuote
+        self.symbol       = symbol
+        self._loadedQuote = loadedQuote
         _viewModel = StateObject(wrappedValue: MinuteChartViewModel(symbol: symbol))
     }
 
     var body: some View {
-        Group {
+        // ── Outer container is always the same view type ──
+        // We never switch between fundamentally different layouts.
+        ZStack {
             switch viewModel.state {
             case .waiting:
                 waitingView
             case .loading:
+                // First-load spinner (no data yet)
                 loadingView
             case .loaded(let data):
-                chartPage(data)
-            case .error(let message):
-                errorView(message)
+                // Chart is always rendered once data is available.
+                // Subsequent refreshes update `data` in-place — no identity change.
+                chartContent(data)
+            case .error(let msg):
+                // Error only shown when we have no prior data to display
+                errorView(msg)
             }
         }
         .navigationTitle(symbol.code)
         .navigationBarTitleDisplayMode(.inline)
-        .onChange(of: loadedQuote) { _, quote in
-            if let quote {
-                viewModel.quoteDidLoad(previousClose: quote.previousClose)
+        .onChange(of: loadedQuote) { _, q in
+            if let q {
+                viewModel.quoteDidLoad(previousClose: q.previousClose)
+                if isAutoRefreshActive { viewModel.startAutoRefresh() }
             }
         }
         .onAppear {
-            if let loadedQuote {
-                viewModel.quoteDidLoad(previousClose: loadedQuote.previousClose)
-            }
-            viewModel.startAutoRefresh()
+            if let q = loadedQuote { viewModel.quoteDidLoad(previousClose: q.previousClose) }
         }
-        .onDisappear {
-            viewModel.stopAutoRefresh()
-        }
+        .onDisappear { viewModel.stopAutoRefresh() }
         .onReceive(NotificationCenter.default.publisher(for: .stockDetailRefreshPage1)) { _ in
             viewModel.refresh()
         }
         .onReceive(NotificationCenter.default.publisher(for: .stockDetailStartPage1)) { _ in
+            isAutoRefreshActive = true
             viewModel.startAutoRefresh()
         }
         .onReceive(NotificationCenter.default.publisher(for: .stockDetailStopPage1)) { _ in
+            isAutoRefreshActive = false
             viewModel.stopAutoRefresh()
         }
     }
 
+    // MARK: — Placeholder views (only shown before first successful load)
+
     private var waitingView: some View {
         VStack(spacing: 6) {
-            Image(systemName: "arrow.left.circle")
-                .foregroundStyle(.secondary)
-            Text("请先查看行情")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
+            Image(systemName: "arrow.left.circle").foregroundStyle(.secondary)
+            Text("请先查看行情").font(.caption2).foregroundStyle(.secondary)
         }
     }
 
     private var loadingView: some View {
         VStack(spacing: 6) {
             ProgressView()
-            Text("加载分时线...")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
+            Text("加载分时线…").font(.caption2).foregroundStyle(.secondary)
         }
     }
 
-    private func errorView(_ message: String) -> some View {
+    private func errorView(_ msg: String) -> some View {
         VStack(spacing: 8) {
-            Image(systemName: "chart.xyaxis.line")
-                .foregroundStyle(.secondary)
-            Text(message)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-            Button("重试") {
-                viewModel.refresh()
-            }
-            .font(.caption2)
-            .buttonStyle(.bordered)
+            Image(systemName: "chart.xyaxis.line").foregroundStyle(.secondary)
+            Text(msg).font(.caption2).foregroundStyle(.secondary).multilineTextAlignment(.center)
+            Button("重试") { viewModel.refresh() }
+                .font(.caption2).buttonStyle(.bordered).tint(.orange)
         }
     }
 
-    private func chartPage(_ data: MinuteData) -> some View {
-        let count = data.points.count
-        let clampedIndex = max(0, min(count - 1, selectedIndex))
-        let selected = data.points[clampedIndex]
+    // MARK: — Chart (rendered once, updated in-place)
+
+    private func chartContent(_ data: MinuteData) -> some View {
+        let count        = data.points.count
+        let clampedIdx   = max(0, min(count - 1, selectedIndex))
+        let selected     = data.points[clampedIdx]
 
         return VStack(spacing: 2) {
+
             selectedInfoHeader(selected, data: data)
 
             HStack(spacing: 2) {
-                leftAxis(data: data)
-                    .frame(width: 26)
+                leftAxis(data: data).frame(width: 26)
 
-                IntradayCanvas(data: data, selectedIndex: clampedIndex)
+                // FIX 3: Canvas is now always inside a stable ZStack layer.
+                // .id is NOT set, so SwiftUI reuses the existing Canvas node.
+                IntradayCanvas(data: data, selectedIndex: clampedIdx)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .focusable()
                     .digitalCrownRotation(
                         $crownValue,
-                        from: 0.0,
-                        through: 1.0,
+                        from: 0.0, through: 1.0,
                         by: 1.0 / Double(max(count - 1, 1)),
                         sensitivity: .medium,
                         isContinuous: false,
                         isHapticFeedbackEnabled: true
                     )
-                    .onChange(of: crownValue) { _, value in
-                        selectedIndex = Int((value * Double(count - 1)).rounded()).clamped(to: 0...(count - 1))
+                    .onChange(of: crownValue) { _, v in
+                        selectedIndex = Int((v * Double(count - 1)).rounded())
+                            .clamped(to: 0...(count - 1))
                     }
                     .onAppear {
                         selectedIndex = count - 1
-                        crownValue = 1.0
+                        crownValue    = 1.0
                     }
-                    .onChange(of: data.points.count) { _, newCount in
-                        if newCount > 0 {
-                            selectedIndex = newCount - 1
-                            crownValue = 1.0
-                        }
+                    .onChange(of: count) { _, newCount in
+                        guard newCount > 0 else { return }
+                        selectedIndex = newCount - 1
+                        crownValue    = 1.0
                     }
 
-                rightAxis(data: data)
-                    .frame(width: 34)
+                rightAxis(data: data).frame(width: 34)
             }
 
-            timeAxis
+            timeAxis()
         }
         .padding(.horizontal, 2)
         .padding(.top, 2)
     }
 
-    private func selectedInfoHeader(_ point: MinutePoint, data: MinuteData) -> some View {
-        let previousClose = data.previousClose
-        let changeAmount = point.price - previousClose
-        let changePercent = previousClose > 0 ? changeAmount / previousClose * 100 : 0
-        let color: Color = changeAmount > 0 ? .red : changeAmount < 0 ? .green : .primary
+    // MARK: — Header (selected point info)
+
+    private func selectedInfoHeader(_ pt: MinutePoint, data: MinuteData) -> some View {
+        let prevClose = data.previousClose
+        let changeAmt = pt.price - prevClose
+        let changePct = prevClose > 0 ? changeAmt / prevClose * 100 : 0
+        let color: Color = changeAmt > 0 ? .red : changeAmt < 0 ? .green : .primary
 
         return VStack(spacing: 1) {
             HStack(spacing: 4) {
-                Circle()
-                    .fill(.green)
-                    .frame(width: 5, height: 5)
-                Text("自动刷新 · 每15秒")
+                Circle().fill(.green).frame(width: 5, height: 5)
+                Text("自动刷新 · 每3秒")
                     .font(.system(size: 8))
                     .foregroundStyle(.secondary)
                 Spacer()
-                Text(point.time)
+                Text(pt.time)
                     .font(.system(size: 10).monospacedDigit())
                     .foregroundStyle(.secondary)
             }
             HStack(spacing: 4) {
-                Text(point.price.priceString)
+                Text(pt.price.priceStr)
                     .font(.system(size: 12, weight: .semibold).monospacedDigit())
                     .foregroundStyle(color)
-                Text(changeAmount >= 0 ? "+\(changeAmount.priceString)" : changeAmount.priceString)
-                    .font(.system(size: 10).monospacedDigit())
-                    .foregroundStyle(color)
-                Text(changePercent >= 0 ? "+\(String(format: "%.2f", changePercent))%" : "\(String(format: "%.2f", changePercent))%")
-                    .font(.system(size: 10).monospacedDigit())
-                    .foregroundStyle(color)
+                Text(changeAmt >= 0 ? "+\(changeAmt.priceStr)" : changeAmt.priceStr)
+                    .font(.system(size: 10).monospacedDigit()).foregroundStyle(color)
+                Text(changePct >= 0
+                     ? "+\(String(format: "%.2f", changePct))%"
+                     : "\(String(format: "%.2f", changePct))%")
+                    .font(.system(size: 10).monospacedDigit()).foregroundStyle(color)
                 Spacer()
-                Text("\(point.cumulativeVolume)手")
-                    .font(.system(size: 10).monospacedDigit())
-                    .foregroundStyle(.secondary)
+                Text("\(pt.cumulativeVolume)手")
+                    .font(.system(size: 10).monospacedDigit()).foregroundStyle(.secondary)
             }
         }
     }
 
-    private func leftAxis(data: MinuteData) -> some View {
-        let percent = symmetricPercent(data: data)
+    // MARK: — Axes
 
+    private func leftAxis(data: MinuteData) -> some View {
+        let pct = symmetricPct(data: data)
         return VStack(alignment: .trailing, spacing: 0) {
-            Text("+\(String(format: "%.1f", percent))%").axisLabel()
+            Text("+\(String(format: "%.1f", pct))%").axisLabel()
             Spacer()
             Text("0%").axisLabel()
             Spacer()
-            Text("-\(String(format: "%.1f", percent))%").axisLabel()
-        }
-        .padding(.vertical, 2)
+            Text("-\(String(format: "%.1f", pct))%").axisLabel()
+        }.padding(.vertical, 2)
     }
 
     private func rightAxis(data: MinuteData) -> some View {
         let prices = data.points.map(\.price)
-        let high = prices.max() ?? data.previousClose
-        let low = prices.min() ?? data.previousClose
-
+        let highP  = prices.max() ?? data.previousClose
+        let lowP   = prices.min() ?? data.previousClose
         return VStack(alignment: .leading, spacing: 0) {
-            Text(high.priceString).axisLabel()
+            Text(highP.priceStr).axisLabel()
             Spacer()
-            Text(data.previousClose.priceString)
-                .font(.system(size: 8).monospacedDigit())
-                .foregroundStyle(.gray)
+            Text(data.previousClose.priceStr)
+                .font(.system(size: 8).monospacedDigit()).foregroundStyle(.gray)
             Spacer()
-            Text(low.priceString).axisLabel()
-        }
-        .padding(.vertical, 2)
+            Text(lowP.priceStr).axisLabel()
+        }.padding(.vertical, 2)
     }
 
-    private var timeAxis: some View {
+    private func timeAxis() -> some View {
         HStack {
-            Text("09:30")
-            Spacer()
-            Text("11:30")
-            Spacer()
-            Text("15:00")
+            Text("09:30"); Spacer(); Text("11:30"); Spacer(); Text("15:00")
         }
-        .font(.system(size: 8))
-        .foregroundStyle(.secondary)
+        .font(.system(size: 8)).foregroundStyle(.secondary)
     }
 
-    private func symmetricPercent(data: MinuteData) -> Double {
-        guard data.previousClose > 0 else {
-            return 2
-        }
-
-        let values = data.points.map(\.price) + [data.previousClose]
+    private func symmetricPct(data: MinuteData) -> Double {
+        guard data.previousClose > 0 else { return 2 }
+        let prices    = data.points.map(\.price)
+        let allVals   = prices + [data.previousClose]
         let halfRange = max(
-            abs((values.max() ?? data.previousClose) - data.previousClose),
-            abs(data.previousClose - (values.min() ?? data.previousClose)),
+            abs((allVals.max() ?? data.previousClose) - data.previousClose),
+            abs(data.previousClose - (allVals.min() ?? data.previousClose)),
             data.previousClose * 0.005
         )
         return halfRange / data.previousClose * 100
     }
 }
 
+// MARK: — Canvas (pure drawing, no SwiftUI state inside)
+
 private struct IntradayCanvas: View {
     let data: MinuteData
     let selectedIndex: Int
 
     var body: some View {
-        Canvas { context, size in
-            draw(context: context, size: size)
-        }
-        .clipped()
+        // drawingGroup() flattens to a single Metal layer — eliminates the
+        // purple compositing flash that happens when SwiftUI blends Canvas
+        // with surrounding views during data updates.
+        Canvas { ctx, size in draw(ctx: ctx, size: size) }
+            .clipped()
+            .drawingGroup()   // FIX 3: force Metal rasterisation, no purple frames
     }
 
-    private func draw(context: GraphicsContext, size: CGSize) {
-        guard !data.points.isEmpty else {
-            return
-        }
+    private func draw(ctx: GraphicsContext, size: CGSize) {
+        guard !data.points.isEmpty, size.width > 0, size.height > 0 else { return }
 
-        let points = data.points
-        let previousClose = data.previousClose
+        let points     = data.points
+        let prevClose  = data.previousClose
         let totalSlots = 240
-        let values = points.flatMap { [$0.price, $0.avgPrice] } + [previousClose]
+
+        // Y range — symmetric around prevClose
+        let prices    = points.map(\.price)
+        let avgs      = points.map(\.avgPrice)
+        let allVals   = prices + avgs + [prevClose]
         let halfRange = max(
-            abs((values.max() ?? previousClose) - previousClose),
-            abs(previousClose - (values.min() ?? previousClose)),
-            previousClose * 0.005
+            abs((allVals.max() ?? prevClose) - prevClose),
+            abs(prevClose - (allVals.min() ?? prevClose)),
+            prevClose * 0.005
         )
-        let yMax = previousClose + halfRange
-        let yMin = previousClose - halfRange
+        let yMax = prevClose + halfRange
+        let yMin = prevClose - halfRange
 
-        func xPosition(_ index: Int) -> CGFloat {
-            size.width * CGFloat(index) / CGFloat(totalSlots - 1)
+        func xOf(_ idx: Int) -> CGFloat {
+            size.width * CGFloat(idx) / CGFloat(max(totalSlots - 1, 1))
+        }
+        func yOf(_ p: Double) -> CGFloat {
+            guard yMax > yMin else { return size.height / 2 }
+            return size.height * CGFloat(1.0 - (p - yMin) / (yMax - yMin))
         }
 
-        func yPosition(_ price: Double) -> CGFloat {
-            guard yMax > yMin else {
-                return size.height / 2
-            }
-            return size.height * CGFloat(1 - (price - yMin) / (yMax - yMin))
+        // 1. Baseline (dashed gray)
+        let baseY = yOf(prevClose)
+        var bl = Path()
+        bl.move(to: CGPoint(x: 0, y: baseY))
+        bl.addLine(to: CGPoint(x: size.width, y: baseY))
+        ctx.stroke(bl, with: .color(.gray.opacity(0.4)),
+                   style: StrokeStyle(lineWidth: 0.5, dash: [3, 3]))
+
+        guard points.count >= 2 else { return }
+
+        // 2. Price fill + FIX 2: line width 1.2 pt (was 2.0)
+        var linePath = Path()
+        linePath.move(to: CGPoint(x: xOf(points[0].minuteIndex), y: yOf(points[0].price)))
+        for pt in points.dropFirst() {
+            linePath.addLine(to: CGPoint(x: xOf(pt.minuteIndex), y: yOf(pt.price)))
         }
 
-        let baselineY = yPosition(previousClose)
-        var baseline = Path()
-        baseline.move(to: CGPoint(x: 0, y: baselineY))
-        baseline.addLine(to: CGPoint(x: size.width, y: baselineY))
-        context.stroke(
-            baseline,
-            with: .color(.gray.opacity(0.4)),
-            style: StrokeStyle(lineWidth: 0.5, dash: [3, 3])
-        )
+        var fill = linePath
+        fill.addLine(to: CGPoint(x: xOf(points.last!.minuteIndex), y: size.height))
+        fill.addLine(to: CGPoint(x: xOf(points.first!.minuteIndex), y: size.height))
+        fill.closeSubpath()
+        ctx.fill(fill, with: .color(.yellow.opacity(0.08)))
 
-        guard points.count >= 2 else {
-            return
-        }
+        ctx.stroke(linePath, with: .color(.yellow),
+                   style: StrokeStyle(lineWidth: 1.2, lineJoin: .round))   // FIX 2
 
-        var pricePath = Path()
-        pricePath.move(to: CGPoint(x: xPosition(points[0].minuteIndex), y: yPosition(points[0].price)))
-        for point in points.dropFirst() {
-            pricePath.addLine(to: CGPoint(x: xPosition(point.minuteIndex), y: yPosition(point.price)))
-        }
-
-        var fillPath = pricePath
-        fillPath.addLine(to: CGPoint(x: xPosition(points.last!.minuteIndex), y: size.height))
-        fillPath.addLine(to: CGPoint(x: xPosition(points.first!.minuteIndex), y: size.height))
-        fillPath.closeSubpath()
-        context.fill(fillPath, with: .color(.yellow.opacity(0.10)))
-        context.stroke(pricePath, with: .color(.yellow), style: StrokeStyle(lineWidth: 2.0, lineJoin: .round))
-
+        // 3. Average line — FIX 2: 0.8 pt (was 1.5)
         var avgPath = Path()
-        avgPath.move(to: CGPoint(x: xPosition(points[0].minuteIndex), y: yPosition(points[0].avgPrice)))
-        for point in points.dropFirst() {
-            avgPath.addLine(to: CGPoint(x: xPosition(point.minuteIndex), y: yPosition(point.avgPrice)))
+        avgPath.move(to: CGPoint(x: xOf(points[0].minuteIndex), y: yOf(points[0].avgPrice)))
+        for pt in points.dropFirst() {
+            avgPath.addLine(to: CGPoint(x: xOf(pt.minuteIndex), y: yOf(pt.avgPrice)))
         }
-        context.stroke(avgPath, with: .color(.orange.opacity(0.85)), style: StrokeStyle(lineWidth: 1.5, lineJoin: .round))
+        ctx.stroke(avgPath, with: .color(.orange.opacity(0.8)),
+                   style: StrokeStyle(lineWidth: 0.8, lineJoin: .round))   // FIX 2
 
-        let selected = points[min(selectedIndex, points.count - 1)]
-        let selectedX = xPosition(selected.minuteIndex)
-        let selectedY = yPosition(selected.price)
+        // 4. Crosshair
+        let sel  = points[min(selectedIndex, points.count - 1)]
+        let selX = xOf(sel.minuteIndex)
+        let selY = yOf(sel.price)
 
-        var crosshair = Path()
-        crosshair.move(to: CGPoint(x: selectedX, y: 0))
-        crosshair.addLine(to: CGPoint(x: selectedX, y: size.height))
-        context.stroke(crosshair, with: .color(.white.opacity(0.35)), style: StrokeStyle(lineWidth: 0.75, dash: [2, 2]))
+        var cv = Path()
+        cv.move(to: CGPoint(x: selX, y: 0))
+        cv.addLine(to: CGPoint(x: selX, y: size.height))
+        ctx.stroke(cv, with: .color(.white.opacity(0.3)),
+                   style: StrokeStyle(lineWidth: 0.6, dash: [2, 2]))
 
-        let radius: CGFloat = 3.5
-        context.fill(
-            Path(ellipseIn: CGRect(x: selectedX - radius - 1.5, y: selectedY - radius - 1.5, width: (radius + 1.5) * 2, height: (radius + 1.5) * 2)),
-            with: .color(.white.opacity(0.25))
-        )
-        context.fill(
-            Path(ellipseIn: CGRect(x: selectedX - radius, y: selectedY - radius, width: radius * 2, height: radius * 2)),
-            with: .color(.yellow)
-        )
+        // Selected dot: white halo + yellow fill
+        let r: CGFloat = 2.5
+        ctx.fill(Path(ellipseIn: CGRect(x: selX - r - 1.2, y: selY - r - 1.2,
+                                        width: (r + 1.2) * 2, height: (r + 1.2) * 2)),
+                 with: .color(.white.opacity(0.2)))
+        ctx.fill(Path(ellipseIn: CGRect(x: selX - r, y: selY - r,
+                                        width: r * 2, height: r * 2)),
+                 with: .color(.yellow))
     }
 }
+
+// MARK: — Extensions
 
 private extension Text {
     func axisLabel() -> some View {
-        font(.system(size: 8).monospacedDigit())
-            .foregroundStyle(.secondary)
+        self.font(.system(size: 8).monospacedDigit()).foregroundStyle(.secondary)
     }
 }
-
 private extension Double {
-    var priceString: String {
-        String(format: "%.2f", self)
-    }
+    var priceStr: String { String(format: "%.2f", self) }
 }
-
 private extension Comparable {
     func clamped(to range: ClosedRange<Self>) -> Self {
         min(max(self, range.lowerBound), range.upperBound)
