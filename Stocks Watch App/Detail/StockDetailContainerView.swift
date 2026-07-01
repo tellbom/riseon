@@ -6,8 +6,7 @@
 //   │  watchOS lifecycle                                       │
 //   │                                                         │
 //   │  App enters foreground (.active)                        │
-//   │    → immediate refresh() on both VMs                    │
-//   │    → restart timer on the currently visible page        │
+//   │    → immediate refresh() on the currently visible page  │
 //   │                                                         │
 //   │  App goes background (.inactive / .background)          │
 //   │    → stopAutoRefresh() on both VMs                      │
@@ -58,14 +57,13 @@ struct StockDetailContainerView: View {
                 .tag(1)
         }
         .tabViewStyle(.page)
-        .indexViewStyle(.page(backgroundDisplayMode: .always))
+        .indexViewStyle(.page(backgroundDisplayMode: .automatic))
         // ── Scene phase: pause/resume on background / foreground ──
         .onChange(of: scenePhase) { _, phase in
             switch phase {
             case .active:
                 // Came back to foreground — refresh immediately then restart timer
-                refreshAllPages()
-                startTimer(for: currentTab)
+                refreshActiveTab()
             case .inactive, .background:
                 stopAllTimers()
             @unknown default:
@@ -81,9 +79,6 @@ struct StockDetailContainerView: View {
                 startTimer(for: tab)
             }
         }
-        .onAppear {
-            startTimer(for: currentTab)
-        }
         .onDisappear {
             stopAllTimers()
         }
@@ -91,11 +86,11 @@ struct StockDetailContainerView: View {
 
     // MARK: — Helpers
 
-    private func refreshAllPages() {
-        // Both VMs receive an immediate kick; the non-visible one will
-        // be throttled by its own guard (.loading) and won't waste battery.
-        NotificationCenter.default.post(name: .stockDetailRefreshPage0, object: nil)
-        NotificationCenter.default.post(name: .stockDetailRefreshPage1, object: nil)
+    private func refreshActiveTab() {
+        let name: Notification.Name = currentTab == 0
+            ? .stockDetailRefreshPage0
+            : .stockDetailRefreshPage1
+        NotificationCenter.default.post(name: name, object: nil)
     }
 
     private func stopAllTimers() {

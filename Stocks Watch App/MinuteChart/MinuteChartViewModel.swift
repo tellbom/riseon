@@ -42,11 +42,13 @@ final class MinuteChartViewModel: ObservableObject {
     func startAutoRefresh() {
         guard previousClose != nil, pollTask == nil else { return }
         pollTask = Task { [weak self] in
+            await self?.fetchWithRetry()
             while !Task.isCancelled {
-                await self?.fetchOnce()
                 try? await Task.sleep(nanoseconds: UInt64(
                     (self?.refreshInterval ?? 3) * 1_000_000_000
                 ))
+                guard !Task.isCancelled else { break }
+                await self?.fetchOnce()
             }
         }
     }
@@ -57,10 +59,47 @@ final class MinuteChartViewModel: ObservableObject {
     }
 
     func refresh() {
+        if pollTask == nil {
+            startAutoRefresh()
+            return
+        }
         Task { [weak self] in await self?.fetchOnce() }
     }
 
     // MARK: — Fetch
+
+    private func fetchWithRetry() async {
+        guard let pc = previousClose else { return }
+        guard !isFetching else { return }
+        isFetching = true
+        defer { isFetching = false }
+
+        if case .waiting = state { state = .loading }
+
+        do {
+            let data = try await minuteProvider.fetchMinuteData(for: symbol, previousClose: pc)
+            if data.points.isEmpty {
+                if case .loaded = state { } else { state = .error("暂无分时数据") }
+            } else {
+                state = .loaded(data)
+            }
+        } catch {
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            guard !Task.isCancelled else { return }
+            do {
+                let data = try await minuteProvider.fetchMinuteData(for: symbol, previousClose: pc)
+                if data.points.isEmpty {
+                    if case .loaded = state { } else { state = .error("暂无分时数据") }
+                } else {
+                    state = .loaded(data)
+                }
+            } catch {
+                if case .loaded = state { } else {
+                    state = .error(error.localizedDescription)
+                }
+            }
+        }
+    }
 
     private func fetchOnce() async {
         guard let pc = previousClose else { return }

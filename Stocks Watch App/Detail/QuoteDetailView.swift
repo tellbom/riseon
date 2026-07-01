@@ -32,25 +32,25 @@ struct QuoteDetailView: View {
     }
 
     var body: some View {
-        Group {
-            switch viewModel.state {
-            case .idle:
-                Color.clear
-
-            case .loading:
-                // Show spinner only on very first load
-                loadingView
-
-            case .loaded(let quote):
+        ZStack {
+            if case .loaded(let quote) = viewModel.state {
                 quoteScrollView(quote)
-                    .onAppear { onQuoteLoaded?(quote) }
+                    .transition(.identity)
+            }
 
-            case .error(let message):
+            if viewModel.isFirstLoading {
+                loadingView
+                    .transition(.identity)
+            }
+
+            if case .error(let message) = viewModel.state {
                 errorView(message)
+                    .transition(.identity)
             }
         }
         .navigationTitle(code)
         .navigationBarTitleDisplayMode(.inline)
+        .onAppear { viewModel.startAutoRefresh() }
         .onChange(of: viewModel.state) { _, newState in
             if case .loaded(let q) = newState { onQuoteLoaded?(q) }
         }
@@ -85,7 +85,7 @@ struct QuoteDetailView: View {
                 .foregroundStyle(.yellow)
             Text("加载失败")
                 .font(.caption)
-            Button("重试") { viewModel.startAutoRefresh() }
+            Button("重试") { viewModel.refresh() }
                 .buttonStyle(.bordered)
                 .tint(.blue)
         }
@@ -179,6 +179,17 @@ struct QuoteDetailView: View {
             }
         }
         .accessibilityLabel("委托明细，\(book.bids.count)档买盘，\(book.asks.count)档卖盘")
+    }
+}
+
+// MARK: — ViewModel convenience
+
+private extension QuoteDetailViewModel {
+    var isFirstLoading: Bool {
+        switch state {
+        case .idle, .loading: return true
+        case .loaded, .error: return false
+        }
     }
 }
 

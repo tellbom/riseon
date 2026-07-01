@@ -37,12 +37,14 @@ final class QuoteDetailViewModel: ObservableObject {
     func startAutoRefresh() {
         guard pollTask == nil else { return }
         pollTask = Task { [weak self] in
+            await self?.fetchWithRetry()
             while !Task.isCancelled {
-                await self?.fetchOnce()
                 // Sleep between polls; if cancelled during sleep, loop exits cleanly
                 try? await Task.sleep(nanoseconds: UInt64(
                     (self?.refreshInterval ?? 3) * 1_000_000_000
                 ))
+                guard !Task.isCancelled else { break }
+                await self?.fetchOnce()
             }
         }
     }
@@ -54,6 +56,10 @@ final class QuoteDetailViewModel: ObservableObject {
 
     /// One-shot refresh (foreground resume kick, error retry).
     func refresh() {
+        if pollTask == nil {
+            startAutoRefresh()
+            return
+        }
         Task { [weak self] in await self?.fetchOnce() }
     }
 
@@ -62,6 +68,30 @@ final class QuoteDetailViewModel: ObservableObject {
     private let provider: any QuoteProvider
     private var pollTask: Task<Void, Never>?
     private var isFetching = false
+
+    private func fetchWithRetry() async {
+        guard !isFetching else { return }
+        isFetching = true
+        defer { isFetching = false }
+
+        if case .idle = state { state = .loading }
+
+        do {
+            let quote = try await provider.fetchQuote(for: symbol)
+            state = .loaded(quote)
+        } catch {
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            guard !Task.isCancelled else { return }
+            do {
+                let quote = try await provider.fetchQuote(for: symbol)
+                state = .loaded(quote)
+            } catch {
+                if case .loaded = state { } else {
+                    state = .error(error.localizedDescription)
+                }
+            }
+        }
+    }
 
     private func fetchOnce() async {
         guard !isFetching else { return }
