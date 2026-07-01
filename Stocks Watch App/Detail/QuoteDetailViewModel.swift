@@ -1,10 +1,11 @@
 // StockWatch Watch App/Detail/QuoteDetailViewModel.swift
 //
-// FIX 1: quote polling interval is 3 s.
+// FIX 1: quote polling interval is 2 s.
 // FIX 4: replaced Timer.scheduledTimer with async Task loop so the poll
 //         runs even when Digital Crown is active (RunLoop tracking-mode bug).
 //         Each iteration awaits the network call, so concurrent stacking
-//         is structurally impossible regardless of latency.
+//         is structurally impossible regardless of latency. Poll cadence is
+//         measured from request start, so request time does not add to 2 s.
 
 import Combine
 import Foundation
@@ -26,7 +27,7 @@ final class QuoteDetailViewModel: ObservableObject {
 
     init(symbol: StockSymbol,
          provider: any QuoteProvider,
-         refreshInterval: TimeInterval = 3) {
+         refreshInterval: TimeInterval = 2) {
         self.symbol          = symbol
         self.provider        = provider
         self.refreshInterval = refreshInterval
@@ -37,14 +38,17 @@ final class QuoteDetailViewModel: ObservableObject {
     func startAutoRefresh() {
         guard pollTask == nil else { return }
         pollTask = Task { [weak self] in
-            await self?.fetchWithRetry()
+            var isFirstPoll = true
             while !Task.isCancelled {
-                // Sleep between polls; if cancelled during sleep, loop exits cleanly
-                try? await Task.sleep(nanoseconds: UInt64(
-                    (self?.refreshInterval ?? 3) * 1_000_000_000
-                ))
+                let startedAt = Date()
+                if isFirstPoll {
+                    await self?.fetchWithRetry()
+                    isFirstPoll = false
+                } else {
+                    await self?.fetchOnce()
+                }
                 guard !Task.isCancelled else { break }
-                await self?.fetchOnce()
+                await self?.sleepForRemainingInterval(since: startedAt)
             }
         }
     }
@@ -68,6 +72,12 @@ final class QuoteDetailViewModel: ObservableObject {
     private let provider: any QuoteProvider
     private var pollTask: Task<Void, Never>?
     private var isFetching = false
+
+    private func sleepForRemainingInterval(since startedAt: Date) async {
+        let remaining = refreshInterval - Date().timeIntervalSince(startedAt)
+        guard remaining > 0 else { return }
+        try? await Task.sleep(nanoseconds: UInt64(remaining * 1_000_000_000))
+    }
 
     private func fetchWithRetry() async {
         guard !isFetching else { return }

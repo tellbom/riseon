@@ -116,7 +116,7 @@ struct QuoteDetailView: View {
             Circle()
                 .fill(.green)
                 .frame(width: 5, height: 5)
-            Text("自动刷新 · 每3秒")
+            Text("自动刷新 · 每2秒")
                 .font(.system(size: 8))
                 .foregroundStyle(.secondary)
             Spacer()

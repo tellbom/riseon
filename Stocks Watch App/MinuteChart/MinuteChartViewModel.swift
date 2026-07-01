@@ -2,6 +2,8 @@
 //
 // FIX 1: minute-chart polling interval is 3 s.
 // FIX 4: async Task poll loop — immune to RunLoop tracking-mode blocking.
+//        Poll cadence is measured from request start, so request time does not
+//        add to the configured interval.
 
 import Combine
 import Foundation
@@ -42,13 +44,17 @@ final class MinuteChartViewModel: ObservableObject {
     func startAutoRefresh() {
         guard previousClose != nil, pollTask == nil else { return }
         pollTask = Task { [weak self] in
-            await self?.fetchWithRetry()
+            var isFirstPoll = true
             while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: UInt64(
-                    (self?.refreshInterval ?? 3) * 1_000_000_000
-                ))
+                let startedAt = Date()
+                if isFirstPoll {
+                    await self?.fetchWithRetry()
+                    isFirstPoll = false
+                } else {
+                    await self?.fetchOnce()
+                }
                 guard !Task.isCancelled else { break }
-                await self?.fetchOnce()
+                await self?.sleepForRemainingInterval(since: startedAt)
             }
         }
     }
@@ -67,6 +73,12 @@ final class MinuteChartViewModel: ObservableObject {
     }
 
     // MARK: — Fetch
+
+    private func sleepForRemainingInterval(since startedAt: Date) async {
+        let remaining = refreshInterval - Date().timeIntervalSince(startedAt)
+        guard remaining > 0 else { return }
+        try? await Task.sleep(nanoseconds: UInt64(remaining * 1_000_000_000))
+    }
 
     private func fetchWithRetry() async {
         guard let pc = previousClose else { return }
