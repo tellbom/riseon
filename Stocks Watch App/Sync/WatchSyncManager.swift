@@ -71,4 +71,12 @@ extension WatchSyncManager: WCSessionDelegate {
     ) {
         applyContext(applicationContext)
     }
+
+#if os(iOS)
+    func sessionDidBecomeInactive(_ session: WCSession) {}
+
+    func sessionDidDeactivate(_ session: WCSession) {
+        WCSession.default.activate()
+    }
+#endif
 }
