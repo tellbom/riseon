@@ -4,36 +4,52 @@
 > 图例：`[ ]` 待办 · `[~]` 进行中 · `[x]` 完成。
 > 纪律：网络 I/O 只允许出现在 `QuoteProvider` 与 `LLMService`；`Analytics/` 保持纯函数可单测；不机械翻译 pandas，需按 Swift 重写并对拍数值。
 
+> **v2 已裁决（详见 `plan.md` §0.5）**：
+> 1. 买卖点由 **LLM** 生成，端上不做规则买卖点；规则引擎只算**支撑/阻力位**；`stop_loss` 可回退 `support_levels[0]`。→ S7 已重写。
+> 2. RSI 统一 **Wilder's EMA**（`stock_analyzer.py` 口径），禁用 `technical_indicators.py` 的简单均值 RSI。→ S6.1 已修订。
+> 3. 代码归一化**新建独立函数**，**不复用 `StockSymbol.swift`**。→ S2.3 已重写。
+> 4. MVP **跳过成交量叠加**，仅叠加价格，并写 ContextPack warning。→ S5.2 已修订。
+> 5. `support_levels` 有**三个**来源（MA5/MA10/MA20，`stock_analyzer.py:461/468/472`），**MA20 分支无 2% 容忍度限制**，只要 `price>=MA20` 即无条件加入——不要只做 MA5/MA10。→ S7.3 已修订。
+> 6. `TechnicalIndicators`（S6，`min_periods=1`）与 `RuleScoreEngine`（S7，满窗口+MA60兜底MA20）的 MA 计算**口径不同，禁止共享实现**，与 RSI 分歧同理。→ S6.1 已修订。
+> 7. 实时覆盖当日日线只处理"已有行覆盖"分支；"当日行尚未出现→追加虚拟行"分支 **MVP 阶段不实现**（需先实测腾讯接口盘中行为），改为写 `intraday_bar_not_yet_available` warning。→ S5.2/S8.2 已修订。
+
 ---
 
-## S0 — 代码理解与迁移边界确认
+## S0 — 代码理解与迁移边界确认 `[x]` 已完成
 
-- [ ] **0.1 通读并确认能力来源定位**（对照 `plan.md` §2）：`analysis_service.py`、`core/pipeline.py`、`schemas/analysis_context_pack.py`、`services/analysis_context_builder.py`、`stock_analyzer.py`、`technical_indicators.py`、`factors/quant_factor_context.py`、`llm/*`。
-  → 验证：产出一页"可迁移/降级/不迁移"清单，逐条附文件路径，与 `plan.md` §8 一致。
-- [ ] **0.2 锁定端上唯一数据源**：确认腾讯实时（`qt.gtimg.cn`）与日线（`web.ifzq.gtimg.cn/appstock/app/fqkline/get`，`qfq`）字段，与现有 Swift `TencentQuoteProvider`/`TencentMinuteProvider` 对齐。
+- [x] **0.1 通读并确认能力来源定位**（对照 `plan.md` §2）：`analysis_service.py`、`core/pipeline.py`、`schemas/analysis_context_pack.py`、`services/analysis_context_builder.py`、`stock_analyzer.py`、`technical_indicators.py`、`factors/quant_factor_context.py`、`llm/*`。
+  → 验证：产出一页"可迁移/降级/不迁移"清单，逐条附文件路径，与 `plan.md` §8 一致。 **交付：`S0_能力迁移评估清单.md`。**
+- [x] **0.2 锁定端上唯一数据源**：确认腾讯实时（`qt.gtimg.cn`）与日线（`web.ifzq.gtimg.cn/appstock/app/fqkline/get`，`qfq`）字段，与现有 Swift `TencentQuoteProvider`/`TencentMinuteProvider` 对齐。
   → 验证：写下日线返回 `qfqday` 的字段序（date/open/close/high/low/volume/amount），并确认成交量单位（手→股 ×100，见 `tencent_fetcher._lots_to_shares`）。
-- [ ] **0.3 明确降级块**：新闻/资金流/基本面/筹码/融资在 MVP 一律 `not_supported`；`ChipDistribution` 端上源标注"无法验证"。
+- [x] **0.3 明确降级块**：新闻/资金流/基本面/筹码/融资在 MVP 一律 `not_supported`；`ChipDistribution` 端上源标注"无法验证"。
   → 验证：文档化降级矩阵，评审通过后再开工。
 
 ---
 
-## S1 — iPhone App 基础工程搭建
+## S1 — iPhone App 基础工程搭建 `[x]` 已完成（含 v2 复审修正）
 
-- [ ] **1.1 在现有 RiseOn 工程内新增模块分组**：`Workspace/ Analytics/ Context/ QA/ UI/`（见 `plan.md` §13），不改动现有自选股/Watch 代码。
+- [x] **1.1 在现有 RiseOn 工程内新增模块分组**：`Workspace/ Analytics/ Context/ QA/ UI/`（见 `plan.md` §13），不改动现有自选股/Watch 代码。
   → 验证：空实现可编译；现有自选股/行情功能不回归。
-- [ ] **1.2 复用共享层**：直接依赖现有 `Shared_Models_WatchlistItem.swift`、`Shared_Persistence_WatchlistStore.swift`、`Shared_QuoteProvider_*`。
+- [x] **1.2 复用共享层**：直接依赖现有 `Shared_Models_WatchlistItem.swift`、`Shared_Persistence_WatchlistStore.swift`、`Shared_QuoteProvider_*`。
   → 验证：Home 列表能读出现有自选股。
+
+> S1 交付的占位文件中，`StockWorkspace`/`ContextPack`/`ChatSession`/`RuleScoreEngine` 相关文件已在本轮 S2 开发中就地替换/更新为真实实现或修订后的占位说明（不再单独提交 S1 补丁，见 S2 各任务的"S1 占位文件更新"说明）。
 
 ---
 
-## S2 — StockWorkspace 数据模型设计
+## S2 — StockWorkspace 数据模型设计 `[x]` 已完成
 
-- [ ] **2.1 定义 `StockWorkspace`**（`code/name/market` + 状态机 `uninitialized/initializing/ready/stale/partial/failed(step)`）。
+- [x] **2.1 定义 `StockWorkspace`**（`code/name/market` + 状态机 `uninitialized/initializing/ready/stale/partial/failed(step)`）。
   → 验证：状态流转单测覆盖所有合法转移。
-- [ ] **2.2 定义持有物结构**：`ContextPack`、`RuleScore`、`ChatSession`、`meta(snapshotDate, source, quality)`。
+- [x] **2.2 定义持有物结构**：`ContextPack`、`RuleScore`、`ChatSession`、`meta(snapshotDate, source, quality)`。
   → 验证：`Codable` 往返序列化单测通过。
-- [ ] **2.3 定义 `code` 归一化**：对齐 Python `canonical_stock_code/normalize_stock_code/is_bse_code` 语义（沪 6/5/9→sh，京→bj，其余→sz）。
-  → 验证：`600519→sh600519`、`000001→sz000001`、`300059→sz300059`、`8/4…→bj…`。
+  → 说明：本任务只定义"持有物"的最小骨架（能挂在 `StockWorkspace` 上、能序列化），不预先实现 S7/S8/S11 才该定义的字段细节（如 `ContextPack.blocks`、`RuleScore` 的枚举分解、`ChatSession` 的摘要压缩）——避免抢跑后续任务。
+- [x] **2.3 新建独立代码归一化函数 `ACodeResolver`（不复用 `StockSymbol.swift`）**：镜像 Python `is_bse_code` + `tencent_fetcher._to_tencent_symbol` 语义——
+  - BSE 优先：`92/43/81/82/83/87/88` 开头且**非 `900` 开头** → `bj`；
+  - 否则 `6/5/9` 开头 → `sh`（注意 `900xxx` 沪 B 股走此分支 → `sh`）；
+  - 其余（`0/3` 等）→ `sz`。
+  → 验证：`600519→sh600519`、`000001→sz000001`、`300059→sz300059`、`900xxx→sh900xxx`（B股非 bj）、`5xxxxx/9xxxxx→sh`、`920xxx→bj920xxx`、`43xxxx→bj`；并与现有 `StockSymbol.swift`（仅 0/3/4/6/8）差异有回归用例。
+  → 说明：S1.1 禁止改动自选股/Watch 代码，故本函数独立存在于 `Workspace/ACodeResolver`，不改 `StockSymbol.swift`。
 
 ---
 
@@ -61,8 +77,10 @@
 
 - [ ] **5.1 新增日线 Provider**：在 `TencentMinuteProvider` 同源基础上实现日线（`param={sym},day,{start},{end},{lookback},qfq`），GBK 无关（JSON）。
   → 验证：`600519` 拉到近 120+ 根日线，字段与单位正确（量×100）。
-- [ ] **5.2 实时覆盖**：用现有 `TencentQuoteProvider` 覆盖当日最新价（对应 pipeline 的 realtime overlay）。
-  → 验证：盘中最后一根日线 close 被实时价覆盖；非交易时段跳过覆盖。
+- [ ] **5.2 实时覆盖（仅价格，跳过成交量；不追加虚拟行，§0.5-7）**：用现有 `TencentQuoteProvider` 覆盖当日最新根日线的 `close`（及可选 open/high/low）；**不叠加成交量**——`Quote.swift` 无整笔成交量字段、`TencentQuoteProvider` 未解析成交量（仅盘口档位量）。在 ContextPack `warnings` 写入 `intraday_volume_overlay_skipped`。
+  **若日线接口当日尚未推送最新一根K线**（即最后一行日期 < 今天，对应 Python `_augment_historical_with_realtime` 的"追加虚拟行"分支）：MVP 阶段**不追加虚拟行**，`daily_bars`/`technical` 继续使用最近一个交易日收盘价，仅 `quote` 块单独展示实时价；在 `warnings` 追加 `intraday_bar_not_yet_available`。追加虚拟行留作 Phase 2 候选项，需先用真机/浏览器实测腾讯日线接口盘中是否已推送当日K线，再决定是否实现（§0.5-7）。
+  → 验证：盘中最后一根日线 close 被实时价覆盖；该根 volume 保持日线原值（不被实时覆盖）；非交易时段跳过覆盖；若当日日线行尚不存在，daily_bars/technical 保持昨收，`quote` 块显示实时价，Pack warnings 含 `intraday_bar_not_yet_available`；Pack warnings 含 `intraday_volume_overlay_skipped`。
+  → 未来可选（非 MVP）：在 `TencentQuoteProvider` 增解成交量字段并扩展 `Quote`，再启用成交量叠加；实测腾讯接口盘中行为后再决定是否实现追加虚拟行分支。
 - [ ] **5.3 首连重试**：沿用 `fetchWithRetry`（1s + 单次重试）经验。
   → 验证：首次冷启动拉数不因首连延迟失败。
 
@@ -70,8 +88,8 @@
 
 ## S6 — 轻量因子/指标计算（Analytics，纯函数）
 
-- [ ] **6.1 移植技术指标**：等价重写 `technical_indicators.py`（MA5/10/20/60、MACD(12/26/9)、KDJ(9/3/3)、RSI(6/12/24)、BOLL(20,2)）。
-  → 验证：与 Python 同一段日线输入**逐值对拍**，误差 < 1e-6（EMA/rolling 口径一致）。
+- [ ] **6.1 移植技术指标**：等价重写 MA5/10/20/60、MACD(12/26/9)、KDJ(9/3/3)、BOLL(20,2) 采用 `technical_indicators.py` 口径（`calculate_ma` 用 `min_periods=1`，不足周期也出值）；**RSI(6/12/24) 必须采用 `stock_analyzer.py::_calculate_rsi` 的 Wilder's EMA 口径**（`ewm(alpha=1/period, adjust=False)`），**禁用** `technical_indicators.py` 的简单 `rolling().mean()` RSI（§0.5-2；评分 S7 依赖此口径）。**`TechnicalIndicators`（本任务）与 `RuleScoreEngine`（S7.2）的 MA 计算禁止共享实现**：`RuleScoreEngine` 的 MA5/10/20/60 必须走 `stock_analyzer.py::_calculate_mas` 的满窗口口径（`rolling(window=period)`，不足周期为 NaN；MA60 数据<60根时退化为 MA20），与本任务的 `min_periods=1` 口径分别独立实现（§0.5-6）。
+  → 验证：MA/MACD/KDJ/BOLL 与 `technical_indicators.py` 逐值对拍（误差<1e-6）；**RSI 与 `stock_analyzer.py::_calculate_rsi` 逐值对拍**（用同段日线，确认与简单均值口径出值不同）；构造 <60 根日线用例，确认 `TechnicalIndicators` 与 `RuleScoreEngine` 的 MA60 分别按各自口径出值且不同。
 - [ ] **6.2 移植信号提取**：等价重写 `get_latest_signals`（金叉/死叉/超买超卖/均线多头等）。
   → 验证：构造用例覆盖每个布尔信号的真/假分支。
 - [ ] **6.3 因子窗口（technical）**：按 `quant_factor_context` 的窗口 `1/3/5/10/20`、计算窗口 120，产出窗口收益/区间位置。
@@ -85,8 +103,15 @@
   → 验证：枚举齐全，与 `stock_analyzer.py` 一致。
 - [ ] **7.2 移植评分**：权重 **趋势30/乖离20/量能15/支撑10/MACD15/RSI10**，输出 `signal_score(0-100)`。
   → 验证：对若干真实日线，Swift 评分与 Python `_generate_signal` 一致（容忍阈值边界）。
-- [ ] **7.3 买卖点**：产出 `ideal_buy/secondary_buy/stop_loss/take_profit`（对齐 pipeline sniper points 语义）。
-  → 验证：多头/空头/盘整各一例，买卖点方向合理且可复现。
+- [ ] **7.3 支撑/阻力位（替代原"买卖点"任务，§0.5-1）**：移植 `TrendAnalyzer._analyze_support_resistance` 的完整 `support_levels`/`resistance_levels` 逻辑（`stock_analyzer.py:448-479`），包含**全部三个支撑位来源**（§0.5-5，不要漏掉第三个）：
+  - MA5 支撑（461行）：`|price-MA5|/MA5 <= 2%` 且 `price>=MA5` 时加入；
+  - MA10 支撑（468行）：`|price-MA10|/MA10 <= 2%` 且 `price>=MA10` 时加入（去重）；
+  - **MA20 支撑（472行，容易漏掉）**：只要 `price>=MA20` 就无条件加入，**没有 2% 容忍度限制**；
+  - 阻力位（477行）：近 20 日最高价，且 `recent_high > price` 时加入。
+  写入 ContextPack `levels` 块，供 LLM 生成买卖点参考。**本任务不产出 `ideal_buy/secondary_buy/take_profit`**。
+  → 验证：多头/空头/盘整各一例，`support_levels`（含全部三个来源）与阻力位与 Python `TrendAnalyzer` 一致；`support_levels[0]` 可作为 `stop_loss` 确定性回退值备用。
+- [ ] **7.4 买卖点归属声明（不实现规则）**：`ideal_buy/secondary_buy/stop_loss/take_profit` 属 `dashboard.battle_plan.sniper_points`，由 **LLM 生成**（见 S9/S10）。端上仅保留 `stop_loss ← support_levels[0]` 的确定性回退（当 LLM 缺该字段时）。
+  → 验证：代码中无端上规则买卖点实现；LLM 缺 `stop_loss` 时回退逻辑有单测。
 
 ---
 
@@ -94,8 +119,8 @@
 
 - [ ] **8.1 移植 Pack 结构**：`ContextPack/Block/Item` + `ContextFieldStatus(available/missing/not_supported/fallback/stale/estimated/partial/fetch_failed)`（对标 `analysis_context_pack.py`）。
   → 验证：序列化字段名与状态枚举与 Python 侧一致。
-- [ ] **8.2 实现 `ContextPackBuilder`**：`quote/daily_bars/technical/factors` 置 available/partial，`chip/fundamentals/news/capital_flow/events` 置 `not_supported`。
-  → 验证：无源块状态正确；技术块携带指标与评分摘要。
+- [ ] **8.2 实现 `ContextPackBuilder`**：`quote/daily_bars/technical/factors/levels` 置 available/partial（`levels`=S7.3 支撑/阻力位），`chip/fundamentals/news/capital_flow/events` 置 `not_supported`；若跳过成交量叠加则 `warnings` 追加 `intraday_volume_overlay_skipped`；若当日日线行尚未推送则追加 `intraday_bar_not_yet_available`（§0.5-4/§0.5-7）。
+  → 验证：无源块状态正确；技术块携带指标与评分摘要；`levels` 块含支撑/阻力位（三个来源都在）；成交量跳过、当日行缺失两种 warning 分别有对应用例。
 - [ ] **8.3 数据质量打分**：按端上权重（technical/quote/daily_bars 为主）算 `overall_score/level/block_scores/limitations`（参照 `analysis_context_builder`）。
   → 验证：缺块越多分越低；level 落在 good/usable/limited/poor。
 
@@ -103,8 +128,8 @@
 
 ## S9 — PromptBuilder
 
-- [ ] **9.1 组装 Prompt**：输入 `ContextPack + RuleScore + MarketStrategyBlueprint(静态文本) + 历史 + 问题` → `(system, user)`。
-  → 验证：缺失块（新闻/基本面）在 Prompt 中被显式标注为"本地不支持"。
+- [ ] **9.1 组装 Prompt**：输入 `ContextPack(含 levels 块) + RuleScore + MarketStrategyBlueprint(静态文本) + 历史 + 问题` → `(system, user)`。Prompt 明确要求 **LLM 结合 `levels` 支撑/阻力位与技术面输出 `sniper_points`（ideal_buy/secondary_buy/stop_loss/take_profit）**（§0.5-1）。
+  → 验证：缺失块（新闻/基本面）在 Prompt 中被显式标注为"本地不支持"；Prompt 含要求 LLM 产出 sniper_points 的指令。
 - [ ] **9.2 System 口径**：只基于给定数据回答、不臆造行情/新闻、声明数据时效（参照 `chat_context.SUMMARY_SYSTEM_PROMPT` 精神）。
   → 验证：注入"无新闻"场景，LLM 不虚构新闻（人工抽检）。
 
@@ -165,10 +190,10 @@
 ## S16 — MVP 验收标准
 
 - [ ] **16.1** 从自选股一键建 Workspace，分步初始化并进度可视化，单步可重试。
-- [ ] **16.2** 端上算出指标与规则评分（0-100）与买卖点，且与 Python 对拍一致。
-- [ ] **16.3** 生成 ContextPack：技术面 available、其余 `not_supported`，含数据质量分。
+- [ ] **16.2** 端上算出指标与规则评分（0-100）与支撑/阻力位，且与 Python 对拍一致（买卖点由 LLM 生成，见 §0.5-1）。
+- [ ] **16.3** 生成 ContextPack：技术面 available、`levels` available、其余 `not_supported`，含数据质量分。
 - [ ] **16.4** 每股独立问答，Prompt 如实声明数据边界，历史严格隔离。
-- [ ] **16.5** LLM 直连云端（自带 Key，Keychain），成功完成一次真机问答。
+- [ ] **16.5** LLM 直连云端（自带 Key，Keychain），成功完成一次真机问答，且能结合 `levels` 产出 sniper_points。
 - [ ] **16.6** 手动刷新 + 过期告警可用；串行/受限并发队列可恢复。
 - [ ] **16.7** 通知/灵动岛显示进度，且未被用作后台计算容器。
 
@@ -180,5 +205,7 @@
 - 全市场横截面选股（`quant_platform/selection/*`）、端上训练/回测/评估（`quant_platform/training,evaluation/*`）。
 - 端上新闻/情报/联网搜索（`search_service.py`、`intelligence_service.py`）。
 - 服务端依赖、内网穿透、常开机器、后台长时计算。
+- 端上规则买卖点算法（`ideal_buy/secondary_buy/take_profit`，由 LLM 生成，见 §0.5-1）。
+- 实时成交量叠加、日线"追加虚拟行"分支（MVP 阶段，见 §0.5-4/§0.5-7）。
 
 > 若某任务看似需要以上任一项，**先停下确认**再实现。
