@@ -53,11 +53,11 @@
 
 ---
 
-## S3 — 本地存储设计
+## S3 — 本地存储设计 `[x]` 已完成
 
-- [ ] **3.1 实现 `WorkspaceStore`**：每股一份独立记录/文件持久化（隔离），支持增删查、原子写。
+- [x] **3.1 实现 `WorkspaceStore`**：每股一份独立记录/文件持久化（隔离），支持增删查、原子写。
   → 验证：建两只股票→互不干扰→重启后仍在。
-- [ ] **3.2 Key 安全存储**：LLM API Key 存 Keychain（非 UserDefaults）。
+- [x] **3.2 Key 安全存储**：LLM API Key 存 Keychain（非 UserDefaults）。
   → 验证：卸载/重装后 Key 行为符合预期；日志不打印 Key。
 
 ---
