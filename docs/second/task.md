@@ -62,14 +62,18 @@
 
 ---
 
-## S4 — 股票初始化任务队列
+## S4 — 股票初始化任务队列 `[x]` 已完成
 
-- [ ] **4.1 实现 `InitializationQueue`（actor）**：串行调度 + 并发上限（2–3），任务模型 `InitTask{code, step, retries, status}`。
+- [x] **4.1 实现 `InitializationQueue`（actor）**：串行调度 + 并发上限（2–3），任务模型 `InitTask{code, step, retries, status}`。
   → 验证：批量入队 5 只，观测并发不超上限、按序完成。
-- [ ] **4.2 断点续跑与恢复**：持久化队列状态；App 重启后恢复未完成任务。
+- [x] **4.2 断点续跑与恢复**：持久化队列状态；App 重启后恢复未完成任务。
   → 验证：初始化中途杀进程→重启→从中断步继续。
-- [ ] **4.3 失败退避**：单步失败指数退避重试（上限），超限置 `failed(step)`。
+- [x] **4.3 失败退避**：单步失败指数退避重试（上限），超限置 `failed(step)`。
   → 验证：模拟网络失败→重试→最终可手动重试成功。
+
+> 范围说明：`InitializationQueue` 只管调度/并发/重试退避/断点恢复，不认识 `StockWorkspace`/
+> `ContextPack`，Step A-E 的真实业务逻辑（S5-S8）通过可注入的 `StepExecutor` 接入；真实
+> executor 落地时由它自己负责通过 `WorkspaceStore` 读写对应的 `StockWorkspace.state`。
 
 ---
 
