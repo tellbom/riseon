@@ -77,16 +77,27 @@
 
 ---
 
-## S5 — 日线与行情数据获取
+## S5 — 日线与行情数据获取 `[x]` 已完成
 
-- [ ] **5.1 新增日线 Provider**：在 `TencentMinuteProvider` 同源基础上实现日线（`param={sym},day,{start},{end},{lookback},qfq`），GBK 无关（JSON）。
+- [x] **5.1 新增日线 Provider**：在 `TencentMinuteProvider` 同源基础上实现日线（`param={sym},day,{start},{end},{lookback},qfq`），GBK 无关（JSON）。
   → 验证：`600519` 拉到近 120+ 根日线，字段与单位正确（量×100）。
-- [ ] **5.2 实时覆盖（仅价格，跳过成交量；不追加虚拟行，§0.5-7）**：用现有 `TencentQuoteProvider` 覆盖当日最新根日线的 `close`（及可选 open/high/low）；**不叠加成交量**——`Quote.swift` 无整笔成交量字段、`TencentQuoteProvider` 未解析成交量（仅盘口档位量）。在 ContextPack `warnings` 写入 `intraday_volume_overlay_skipped`。
+- [x] **5.2 实时覆盖（仅价格，跳过成交量；不追加虚拟行，§0.5-7）**：用现有 `TencentQuoteProvider` 覆盖当日最新根日线的 `close`（及可选 open/high/low）；**不叠加成交量**——`Quote.swift` 无整笔成交量字段、`TencentQuoteProvider` 未解析成交量（仅盘口档位量）。在 ContextPack `warnings` 写入 `intraday_volume_overlay_skipped`。
   **若日线接口当日尚未推送最新一根K线**（即最后一行日期 < 今天，对应 Python `_augment_historical_with_realtime` 的"追加虚拟行"分支）：MVP 阶段**不追加虚拟行**，`daily_bars`/`technical` 继续使用最近一个交易日收盘价，仅 `quote` 块单独展示实时价；在 `warnings` 追加 `intraday_bar_not_yet_available`。追加虚拟行留作 Phase 2 候选项，需先用真机/浏览器实测腾讯日线接口盘中是否已推送当日K线，再决定是否实现（§0.5-7）。
   → 验证：盘中最后一根日线 close 被实时价覆盖；该根 volume 保持日线原值（不被实时覆盖）；非交易时段跳过覆盖；若当日日线行尚不存在，daily_bars/technical 保持昨收，`quote` 块显示实时价，Pack warnings 含 `intraday_bar_not_yet_available`；Pack warnings 含 `intraday_volume_overlay_skipped`。
   → 未来可选（非 MVP）：在 `TencentQuoteProvider` 增解成交量字段并扩展 `Quote`，再启用成交量叠加；实测腾讯接口盘中行为后再决定是否实现追加虚拟行分支。
-- [ ] **5.3 首连重试**：沿用 `fetchWithRetry`（1s + 单次重试）经验。
+- [x] **5.3 首连重试**：沿用 `fetchWithRetry`（1s + 单次重试）经验。
   → 验证：首次冷启动拉数不因首连延迟失败。
+
+> 范围说明：
+> - `TencentDailyProvider`（S5.1）收 `fullSymbol: String`，不是 `StockSymbol`——避免重新引入
+>   `ACodeResolver`（§0.5-3）本来要绕开的 0/3/4/6/8 限制。调用方用 `ACodeResolver.fullSymbol(for:)`
+>   解析后传入。
+> - S5.2 的覆盖逻辑（`RealtimeOverlay`）是纯函数，产出 `warnings: [String]`，还不是真正写进
+>   `ContextPack`（那是 S8.2 的事，`ContextPack.warnings` 字段目前还不存在）。两个 warning key
+>   字面量已经提前放进 `ContextPackWarningKey`，S8 落地时直接引用，不会两边各写一份不一致的字符串。
+> - S5.1"拉到近 120+ 根日线"这半句验证点是真机/联网验证，本环境没有 `web.ifzq.gtimg.cn` 的网络
+>   访问权限，只做了 fixture 级别的解析单测（字段序、量×100、防御式解析），真实拉取需要在 Xcode
+>   里手动跑一次确认。
 
 ---
 

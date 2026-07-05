@@ -43,7 +43,10 @@
 4. **MVP 阶段实时行情覆盖跳过成交量叠加，仅叠加价格。** `Shared/Models/Quote.swift` 没有
    volume/amount 字段，`TencentQuoteProvider` 也未解析整笔成交量（只解析盘口五档量）。覆盖时只更新
    `close`（及可选 `open/high/low`），`volume` 保持日线原值，并在 ContextPack `warnings` 写入
-   `intraday_volume_overlay_skipped`。
+   `intraday_volume_overlay_skipped`。**`open/high/low` 的覆盖是直接覆写，不是与原日线取
+   max/min 合并**——与 Python `_augment_historical_with_realtime` 行为一致（该函数同样是直接
+   `df.loc[idx,'high']=high_p` 覆写，因为腾讯实时行情本身报的就是当日累计最高/最低，不是最新一笔
+   报价）；已在 S5.2 的 `RealtimeOverlay` 中落地并有回归用例覆盖。
 5. **`support_levels` 有三个来源，不是两个——MA20 分支容易被漏掉。**
    `src/stock_analyzer.py::_analyze_support_resistance`（448-479 行）里：
    - 461 行：MA5，`|price-MA5|/MA5 <= 2%` 且 `price>=MA5` 才计入；
@@ -267,15 +270,21 @@ Step F 就绪      → 标记 ready，写入快照时间
 
 ```
 RiseOn (现有 iPhone 工程) 内新增：
-├── Shared/ (复用现有)
+├── Shared/ (复用现有，可新增文件，不改动既有文件)
 │   ├── Models: WatchlistItem, StockSymbol, Quote, MinutePoint   ← 已存在，不改动
+│   │           DailyBar                                          ← S5.1 新增
 │   └── QuoteProvider: QuoteProvider, TencentQuoteProvider,       ← 已存在，不改动
-│                      TencentMinuteProvider(+新增日线变体)
+│                      TencentMinuteProvider(+新增日线变体 TencentDailyProvider)
+│         注：TencentDailyProvider 收的是已解析好的 fullSymbol: String（如 "sh600519"），
+│         不是 StockSymbol——StockSymbol 只认 0/3/4/6/8 开头，会重新引入 ACodeResolver
+│         本来就是为了绕开的那个限制（§0.5-3）。调用方自己用 ACodeResolver.fullSymbol(for:)
+│         解析后传入。
 ├── Workspace/
 │   ├── StockWorkspace (模型 + 状态机)
 │   ├── ACodeResolver (§0.5-3：独立 code 归一化，不复用 StockSymbol.swift)
 │   ├── WorkspaceStore (每股独立持久化)
-│   └── InitializationQueue (actor 队列)
+│   ├── InitializationQueue (actor 队列) + InitQueueStore (队列状态持久化)
+│   └── RealtimeOverlay (Step B 的纯函数实现：日线+实时行情→覆盖后日线+warnings)
 ├── Analytics/           ← 纯计算，可单测；与下方 Context/ 一样，MA/RSI 口径独立实现（§0.5-2/§0.5-6）
 │   ├── TechnicalIndicators (移植 technical_indicators.py，MA用min_periods=1)
 │   ├── RuleScore + RuleScoreEngine (移植 TrendAnalyzer 评分 + 支撑/阻力位；
@@ -283,10 +292,11 @@ RiseOn (现有 iPhone 工程) 内新增：
 │   └── FactorWindows     (移植 quant_factor_context 的 technical 窗口)
 ├── Context/
 │   ├── ContextPack (对标 AnalysisContextPack + 状态枚举 + 质量打分 + levels 块)
-│   └── ContextPackBuilder
+│   ├── ContextPackBuilder
+│   └── ContextPackWarningKey (S5.2 起复用的 warning key 常量，S8 的 warnings 字段共用同一份字面量)
 ├── QA/
 │   ├── PromptBuilder (Pack+Score+Blueprint+History → prompts；要求 LLM 结合 levels 产出 sniper_points)
-│   ├── LLMService (直连云端 API，Keychain 存 Key)
+│   ├── LLMService (直连云端 API，Keychain 存 Key) + LLMAPIKeyStore (S3.2 已实现)
 │   └── ChatSession (每股隔离 + 摘要压缩)
 └── UI/
     ├── HomeListView, WorkspaceDetailView, ChatView, InitProgressView
