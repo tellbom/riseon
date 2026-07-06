@@ -253,16 +253,17 @@ Step F 就绪      → 标记 ready，写入快照时间
 | 新闻/情报/联网搜索 | `intelligence_service.py`、`search_service.py` | **不迁移（MVP 降级）** | 强依赖服务端 + 第三方 Key |
 
 **不要机械翻译**：以上"移植"指按 Swift 惯用法重写等价逻辑（含单元测试固定用例），而非逐行转译 pandas。
-**不要合并口径不同的实现**：`TechnicalIndicators`（S6）与 `RuleScoreEngine`（S7）的 MA/RSI 即使名字一样，也必须分别独立实现（§0.5-2/§0.5-6）。
+**不要合并口径不同的实现**：`TechnicalIndicators`（S6）与 `RuleScoreEngine`（S7）的 **MA** 即使名字一样，也必须分别独立实现（§0.5-6）；RSI 已统一为 Wilder's EMA 口径，可复用同一份 `rsiWilder`（§0.5-2/§0.5-6）。
 
 ---
 
 ## 9. Prompt 与 LLM 问答设计
 
-- **PromptBuilder（Swift）**：输入=该股 `ContextPack`（含 `levels` 支撑/阻力位块） + `RuleScore` + `MarketStrategyBlueprint` 文本（仅摘通用交易纪律部分） + 用户问题 + 会话历史；输出=`(systemPrompt, userPrompt)`。
-  - system 参照 Python 侧口径：只基于给定数据回答、不臆造行情/新闻、明确数据时效与缺失（呼应 `chat_context.SUMMARY_SYSTEM_PROMPT` 与 overview 的诚实呈现）。
-  - 缺失块必须写进 Prompt（"新闻/基本面：本地不支持"），防止 LLM 幻觉补数据。
+- **PromptBuilder（Swift，S9 已落地）**：输入=该股 `ContextPack`（含 `levels` 支撑/阻力位块） + `RuleScore` + `MarketStrategyBlueprint` 文本（仅摘通用交易纪律部分） + 用户问题 + 会话历史；输出=`(systemPrompt, userPrompt)`。
+  - system 参照 Python 侧口径：只基于给定数据回答、不臆造行情/新闻、明确数据时效与缺失（呼应 `chat_context.SUMMARY_SYSTEM_PROMPT` 与 overview 的诚实呈现）；买卖点指令也放在 system（作为每次问答都生效的固定行为要求），不是每次现拼在 user 里。
+  - 缺失块必须写进 Prompt（"新闻/基本面：本地不支持"），防止 LLM 幻觉补数据；具体做法是把 `ContextPack.blocks` 按固定顺序逐块渲染，`not_supported` 的块直接输出"状态：本地不支持"这行字面文案。
   - **买卖点指令（§0.5-1）**：Prompt 必须显式要求 LLM 结合 `levels` 块（支撑/阻力位）与技术面数据，产出结构化 `sniper_points`（`ideal_buy/secondary_buy/stop_loss/take_profit`）；若 LLM 未给出 `stop_loss`，端上使用 `support_levels[0]` 作为确定性回退（S7.4）。
+  - `RuleScore` 除了给 `ContextPack.technical` 块提供数值摘要外，还单独把 `signalReasons`/`riskFactors`（`_generate_signal` 产出的中文可读原因，如"✅ 强势多头，顺势做多"）整段附进 Prompt，作为规则引擎给出评分的依据说明，而不是让 LLM 只看数字自己现编理由。
 - **LLMService（Swift）**：抽象 `func generate(system:String, user:String) async throws -> String`；实现直连云端 API（用户在设置里填 Key，Keychain 存储）。对应 Python `GenerationBackend.generate` 的最小子集。
 - **会话隔离与压缩**：每股独立消息数组；超长时按 `chat_context` 的 5 段式摘要思路做端上压缩（可先本地截断，后续接 LLM 压缩）。
 
@@ -367,5 +368,5 @@ RiseOn (现有 iPhone 工程) 内新增：
 - **基本面/资金流/筹码源无法验证端上可行性**：`ChipDistribution` 的实际数据源在 `DataFetcherManager` 内部经多源熔断获取，**从已读代码无法确认是否存在可端上直连的公开端点——标注"无法验证"**，MVP 一律 `not_supported`。
 - **横截面/训练/回测**：与单股端上问答目标无关，明确不迁移。
 - **不要机械翻译**：pandas 逻辑需按 Swift 重写并配固定用例单测，尤其指标数值需与 Python 输出对拍。
-- **不要合并口径不同的实现**：`TechnicalIndicators` 与 `RuleScoreEngine` 的 MA/RSI 即使名字相同也要分别独立实现并分别对拍（§0.5-2/§0.5-6），避免"重构成一份共享代码"的直觉冲动。
+- **不要合并口径不同的实现**：`TechnicalIndicators` 与 `RuleScoreEngine` 的 **MA** 即使名字相同也要分别独立实现并分别对拍（§0.5-6），避免"重构成一份共享代码"的直觉冲动；RSI 已统一为 Wilder's EMA 口径，可复用同一份 `rsiWilder`（§0.5-2/§0.5-6）。
 - **腾讯日线接口盘中行为待实测**：`_augment_historical_with_realtime` 的"追加虚拟行"分支是否需要实现，取决于腾讯接口盘中是否已推送当日K线，MVP 阶段先跳过并显式声明（§0.5-7），后续需要真机验证。

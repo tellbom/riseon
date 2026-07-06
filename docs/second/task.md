@@ -176,12 +176,20 @@
 
 ---
 
-## S9 — PromptBuilder
+## S9 — PromptBuilder `[x]` 已完成
 
-- [ ] **9.1 组装 Prompt**：输入 `ContextPack(含 levels 块) + RuleScore + MarketStrategyBlueprint(静态文本) + 历史 + 问题` → `(system, user)`。Prompt 明确要求 **LLM 结合 `levels` 支撑/阻力位与技术面输出 `sniper_points`（ideal_buy/secondary_buy/stop_loss/take_profit）**（§0.5-1）。
-  → 验证：缺失块（新闻/基本面）在 Prompt 中被显式标注为"本地不支持"；Prompt 含要求 LLM 产出 sniper_points 的指令。
-- [ ] **9.2 System 口径**：只基于给定数据回答、不臆造行情/新闻、声明数据时效（参照 `chat_context.SUMMARY_SYSTEM_PROMPT` 精神）。
-  → 验证：注入"无新闻"场景，LLM 不虚构新闻（人工抽检）。
+- [x] **9.1 组装 Prompt**：输入 `ContextPack(含 levels 块) + RuleScore + MarketStrategyBlueprint(静态文本) + 历史 + 问题` → `(system, user)`。Prompt 明确要求 **LLM 结合 `levels` 支撑/阻力位与技术面输出 `sniper_points`（ideal_buy/secondary_buy/stop_loss/take_profit）**（§0.5-1）。
+  → 验证：缺失块（新闻/基本面）在 Prompt 中被显式标注为"本地不支持"；Prompt 含要求 LLM 产出 sniper_points 的指令。**交付：`ContextPack.blocks` 按固定顺序逐块渲染，`not_supported` 块直接输出"状态：本地不支持"字面文案，单测按具体 block 名逐一断言，不是笼统检查"某处出现过这四个字"。**
+- [x] **9.2 System 口径**：只基于给定数据回答、不臆造行情/新闻、声明数据时效（参照 `chat_context.SUMMARY_SYSTEM_PROMPT` 精神）。
+  → 验证：注入"无新闻"场景，LLM 不虚构新闻（人工抽检）。**交付：System Prompt 里已包含"不得编造""数据快照时间""数据质量等级""过期"等具体措辞并有单测覆盖；但"LLM 实际执行时确实不会编造新闻"这件事本身要接真实 LLM 才能验证，本环境不具备（这条验证点本来就写明是人工抽检，不是自动化测试）。**
+
+> 范围说明：
+> - 买卖点指令放在 system prompt（每次问答都生效的固定行为要求），不是每次现拼进 user prompt。
+> - `RuleScore` 除了给 `technical`/`levels` 块提供数值摘要外，`PromptBuilder` 还单独把
+>   `signalReasons`/`riskFactors`（`_generate_signal` 产出的中文可读理由）整段附进 Prompt，
+>   作为规则引擎评分依据，而不是让 LLM 只看数字自己现编理由。
+> - Blueprint 只保留 `principles`/`action_framework`，`dimensions`（涨跌家数/板块轮动这类大盘维度）
+>   一个字都没进 Prompt——有专门回归用例确认这一点。
 
 ---
 
