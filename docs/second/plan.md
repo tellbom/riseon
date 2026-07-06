@@ -204,17 +204,34 @@ Step F 就绪      → 标记 ready，写入快照时间
 
 ## 7. 股票数据包 / 上下文包设计
 
-端上 `ContextPack`（**直接对标** `src/schemas/analysis_context_pack.py`）：
+端上 `ContextPack`（**直接对标** `src/schemas/analysis_context_pack.py`，S8 已落地）：
 
-- `subject{code,name,market}`、`pack_version`、`created_at`。
-- `blocks`：
-  - `quote`（available，来自实时）
-  - `daily_bars`（available，来自日线）
-  - `technical`（available，来自端上指标）
-  - `factors`（partial：仅 technical 窗口，参照 `quant_factor_context` 的 `1/3/5/10/20` 窗口与 120 bar 计算窗口）
-  - `levels`（available：S7.3 产出的支撑位/阻力位，供 LLM 生成买卖点参考，见 §0.5-1/§0.5-5）
-  - `chip / fundamentals / news / capital_flow / events`（**not_supported**，端上无源）
-- `data_quality{overall_score, level(good/usable/limited/poor), block_scores, limitations, warnings}`，权重参照 `analysis_context_builder`（端上重算权重：technical/quote/daily_bars 为主）；`warnings` 中会出现 `intraday_volume_overlay_skipped`（§0.5-4）与视情况出现的 `intraday_bar_not_yet_available`（§0.5-7）。
+- `subject{code,stock_name,market}`、`pack_version`、`created_at`、`blocks`、`data_quality`、`metadata`。
+  **不迁移** `phase` 字段与 `to_safe_dict()/model_copy()`：`phase` 是服务端管道的执行阶段记录，端上没有对应
+  概念；`to_safe_dict()` 是面向多租户服务端的敏感信息脱敏，端上这份 Pack 只会离开设备去到用户自己配置
+  的 LLM，不存在"脱敏给谁看"的问题。
+- `blocks`（状态不是写死的，取决于实际拿到的数据）：
+  - `quote`：有实时行情→`available`；没有→`missing`。
+  - `daily_bars`：有日线→`available`；日线存在但当日K线还没被日线接口推送（§0.5-7 的
+    `intraday_bar_not_yet_available`）→`partial`；完全没日线→`missing`。
+  - `technical`：有日线就能算指标（`TechnicalIndicators` 的 `min_periods=1`不挑数据量），但"评分摘要"
+    要 `RuleScoreEngine` 那 20 根最低门槛才有意义——够格→`available`；日线存在但不够 20 根→`partial`
+    （指标在但没评分摘要）；完全没日线→`missing`。
+  - `factors`（partial：仅 technical 窗口，参照 `quant_factor_context` 的 `1/3/5/10/20` 窗口与 120 bar
+    计算窗口；`capital_flow/valuation/industry/fundamentals/margin` 子块永远没有，所以永远到不了
+    `available`，哪怕 technical 窗口都算出来了）
+  - `levels`（S7.3 产出的支撑位/阻力位，供 LLM 生成买卖点参考，见 §0.5-1/§0.5-5；同样需要 20 根门槛，
+    不够→`missing`）
+  - `chip / fundamentals / news / capital_flow / events`（**not_supported**，端上无源，`portfolio`
+    块不迁移——那是 Python 侧多股组合概念，`StockWorkspace` 设计上是单股隔离，见 §5）
+- `data_quality{overall_score, level(good/usable/limited/poor), block_scores, limitations, warnings}`，
+  权重照抄 `analysis_context_builder` 的 `_QUALITY_BLOCK_WEIGHTS`（只有 quote/daily_bars/technical/
+  news/fundamentals/chip 六块参与计分，`factors/levels/capital_flow/events` 不参与——`portfolio`
+  也不参与，因为不存在）；`warnings` 汇总自各步骤产生的告警（不是每个 block 各自重复一份），会出现
+  `intraday_volume_overlay_skipped`（§0.5-4，MVP 阶段每次都会有）与视情况出现的
+  `intraday_bar_not_yet_available`（§0.5-7）。`limitations` 只统计"退化"状态（stale/fallback/missing/
+  fetch_failed/partial/estimated 之于核心块，fetch_failed/fallback/stale 之于辅助块），`not_supported`
+  不算限制——那是预期内、永久性的降级，不是某次拉取失败。
 - **序列化**：JSON，落本地文件；问答时整包注入 Prompt（大小可控，端上无检索需求）。
 
 ---
@@ -236,7 +253,7 @@ Step F 就绪      → 标记 ready，写入快照时间
 | 新闻/情报/联网搜索 | `intelligence_service.py`、`search_service.py` | **不迁移（MVP 降级）** | 强依赖服务端 + 第三方 Key |
 
 **不要机械翻译**：以上"移植"指按 Swift 惯用法重写等价逻辑（含单元测试固定用例），而非逐行转译 pandas。
-**不要合并口径不同的 MA 实现**：`TechnicalIndicators`（S6）与 `RuleScoreEngine`（S7）的 MA 即使名字一样，也必须分别独立实现（§0.5-6）；RSI 已统一为 Wilder's EMA，可复用 `TechnicalIndicators.rsiWilder`（§0.5-2/§0.5-6）。MACD 公式也一致，`RuleScoreEngine` 可复用 `TechnicalIndicators.macd`。
+**不要合并口径不同的实现**：`TechnicalIndicators`（S6）与 `RuleScoreEngine`（S7）的 MA/RSI 即使名字一样，也必须分别独立实现（§0.5-2/§0.5-6）。
 
 ---
 
@@ -350,5 +367,5 @@ RiseOn (现有 iPhone 工程) 内新增：
 - **基本面/资金流/筹码源无法验证端上可行性**：`ChipDistribution` 的实际数据源在 `DataFetcherManager` 内部经多源熔断获取，**从已读代码无法确认是否存在可端上直连的公开端点——标注"无法验证"**，MVP 一律 `not_supported`。
 - **横截面/训练/回测**：与单股端上问答目标无关，明确不迁移。
 - **不要机械翻译**：pandas 逻辑需按 Swift 重写并配固定用例单测，尤其指标数值需与 Python 输出对拍。
-- **不要合并口径不同的 MA 实现**：`TechnicalIndicators` 与 `RuleScoreEngine` 的 MA 即使名字相同也要分别独立实现并分别对拍（§0.5-6），避免"重构成一份共享代码"的直觉冲动；RSI 已统一为 Wilder's EMA，可复用 `TechnicalIndicators.rsiWilder`，MACD 公式一致，可复用 `TechnicalIndicators.macd`（§0.5-2/§0.5-6）。
+- **不要合并口径不同的实现**：`TechnicalIndicators` 与 `RuleScoreEngine` 的 MA/RSI 即使名字相同也要分别独立实现并分别对拍（§0.5-2/§0.5-6），避免"重构成一份共享代码"的直觉冲动。
 - **腾讯日线接口盘中行为待实测**：`_augment_historical_with_realtime` 的"追加虚拟行"分支是否需要实现，取决于腾讯接口盘中是否已推送当日K线，MVP 阶段先跳过并显式声明（§0.5-7），后续需要真机验证。

@@ -36,7 +36,7 @@ final class HoldingsCodableTests: XCTestCase {
 
     func test_contextPack_roundTrips() throws {
         let original = ContextPack(
-            subject: ContextPackSubject(code: "600519", name: "贵州茅台", market: "sh"),
+            subject: ContextPackSubject(code: "600519", stockName: "贵州茅台", market: "sh"),
             packVersion: "1.0",
             createdAt: Date(timeIntervalSince1970: 1_750_000_000)
         )
@@ -81,7 +81,7 @@ final class HoldingsCodableTests: XCTestCase {
     func test_stockWorkspace_roundTrips_withHoldingsPopulated() throws {
         var workspace = StockWorkspace(code: "600519", name: "贵州茅台", market: "sh")
         workspace.contextPack = ContextPack(
-            subject: ContextPackSubject(code: "600519", name: "贵州茅台", market: "sh")
+            subject: ContextPackSubject(code: "600519", stockName: "贵州茅台", market: "sh")
         )
         workspace.ruleScore = RuleScore(code: "600519", signalScore: 61)
         workspace.chatSession.messages.append(

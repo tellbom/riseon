@@ -152,14 +152,27 @@
 
 ---
 
-## S8 — ContextPack 构建
+## S8 — ContextPack 构建 `[x]` 已完成
 
-- [ ] **8.1 移植 Pack 结构**：`ContextPack/Block/Item` + `ContextFieldStatus(available/missing/not_supported/fallback/stale/estimated/partial/fetch_failed)`（对标 `analysis_context_pack.py`）。
-  → 验证：序列化字段名与状态枚举与 Python 侧一致。
-- [ ] **8.2 实现 `ContextPackBuilder`**：`quote/daily_bars/technical/factors/levels` 置 available/partial（`levels`=S7.3 支撑/阻力位），`chip/fundamentals/news/capital_flow/events` 置 `not_supported`；若跳过成交量叠加则 `warnings` 追加 `intraday_volume_overlay_skipped`；若当日日线行尚未推送则追加 `intraday_bar_not_yet_available`（§0.5-4/§0.5-7）。
-  → 验证：无源块状态正确；技术块携带指标与评分摘要；`levels` 块含支撑/阻力位（三个来源都在）；成交量跳过、当日行缺失两种 warning 分别有对应用例。
-- [ ] **8.3 数据质量打分**：按端上权重（technical/quote/daily_bars 为主）算 `overall_score/level/block_scores/limitations`（参照 `analysis_context_builder`）。
-  → 验证：缺块越多分越低；level 落在 good/usable/limited/poor。
+- [x] **8.1 移植 Pack 结构**：`ContextPack/Block/Item` + `ContextFieldStatus(available/missing/not_supported/fallback/stale/estimated/partial/fetch_failed)`（对标 `analysis_context_pack.py`）。
+  → 验证：序列化字段名与状态枚举与 Python 侧一致。**交付：新增 `JSONValue` 枚举承接 Python `Any`/`Dict[str,Any]`
+  字段（`value`/`metadata`），所有多词字段都手写了 `CodingKeys` 映射到 Python 的 snake_case（`stock_name`/
+  `pack_version`/`data_quality`/`fallback_from`/`missing_reason`/`overall_score`/`block_scores`），单测直接
+  解出 JSON dict 断言 key 字面量，不是只信任 Codable 往返。不迁移 `phase`/`to_safe_dict`/`model_copy`
+  （服务端/多租户概念，端上没有对应场景，见 plan.md §7）。**
+- [x] **8.2 实现 `ContextPackBuilder`**：`quote/daily_bars/technical/factors/levels` 置 available/partial（`levels`=S7.3 支撑/阻力位），`chip/fundamentals/news/capital_flow/events` 置 `not_supported`；若跳过成交量叠加则 `warnings` 追加 `intraday_volume_overlay_skipped`；若当日日线行尚未推送则追加 `intraday_bar_not_yet_available`（§0.5-4/§0.5-7）。
+  → 验证：无源块状态正确；技术块携带指标与评分摘要；`levels` 块含支撑/阻力位（三个来源都在）；成交量跳过、当日行缺失两种 warning 分别有对应用例。**交付：`technical` 块的"评分摘要"部分门槛对齐 `RuleScoreEngine.minimumBarsRequired`（20根）而不是 `TechnicalIndicators` 自己的 `min_periods=1`——日线够但不到20根时，指标还在但评分摘要不出现，块状态降级为 `partial`。**
+- [x] **8.3 数据质量打分**：按端上权重（technical/quote/daily_bars 为主）算 `overall_score/level/block_scores/limitations`（参照 `analysis_context_builder`）。
+  → 验证：缺块越多分越低；level 落在 good/usable/limited/poor。**交付：三组场景（全可用/全缺失/部分退化）逐一与 `_build_data_quality` 的真实计算结果核对，含 `round(92.5)=92`（银行家舍入）这类边界值。**
+
+> 范围说明：
+> - `warnings` 统一收在 `data_quality.warnings` 里，不在每个 block 里各自重复一份——照抄 Python 侧
+>   `_build_data_quality(blocks, warnings=...)` 的做法（block 构建过程中产生的告警汇总传给 data_quality，
+>   不是分散存放）。
+> - `not_supported` 从不计入 `limitations`——这是预期内的永久降级，不是某次拉取失败，`chip/fundamentals/
+>   news` 常年 `not_supported` 也不会占用 `limitations` 的 5 条名额。
+> - `portfolio` 块（Python 侧的多股组合上下文）没有迁移——`StockWorkspace` 设计上是单股隔离（plan.md §5），
+>   不存在组合场景。
 
 ---
 
