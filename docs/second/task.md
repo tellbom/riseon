@@ -193,12 +193,22 @@
 
 ---
 
-## S10 — LLMService
+## S10 — LLMService `[x]` 已完成
 
-- [ ] **10.1 抽象协议**：`func generate(system:String, user:String) async throws -> String`（对齐 `GenerationBackend.generate` 最小子集）。
-  → 验证：协议可注入 Mock，便于单测。
-- [ ] **10.2 云端直连实现**：用户自带 Key（Keychain），直连所选云 API；结构化错误（超时/鉴权/空输出）参照 `GenerationErrorCode`。
-  → 验证：真机一次成功问答；断网/错 Key 给出清晰错误态。
+- [x] **10.1 抽象协议**：`func generate(system:String, user:String) async throws -> String`（对齐 `GenerationBackend.generate` 最小子集）。
+  → 验证：协议可注入 Mock，便于单测。**交付：单测里直接构造了一个 mock 结构体塞进只认 `LLMService` 协议类型的调用点，证明确实可替换，不是只测"能不能声明一个 mock"。**
+- [x] **10.2 云端直连实现**：用户自带 Key（Keychain），直连所选云 API；结构化错误（超时/鉴权/空输出）参照 `GenerationErrorCode`。
+  → 验证：真机一次成功问答；断网/错 Key 给出清晰错误态。**交付：状态码→错误映射、响应体解析这两个纯函数逻辑有完整单测；真实网络请求本身没有自动化测试（这个代码库其他联网组件也没有注入 mock URLSession 的先例，保持一致），"真机一次成功问答"这条验证点本身就是要在 Xcode 接上真实 Key 之后手动跑。**
+
+> 范围说明（**连线格式是需要你确认的决策，见 plan.md §9**）：
+> - 具体实现 `OpenAICompatibleLLMService` 走的是 OpenAI 兼容的 `/chat/completions` 格式，不是 Anthropic
+>   原生 Messages API。这不是 task.md/plan.md 原文规定的，是这轮开发时做的选择——个人使用场景下能接的
+>   云端服务大多实现这个格式更方便，`endpoint`/`model` 都可配置，没有锁死具体厂商。如果你想直接对接
+>   Anthropic 原生格式，需要另外加一个 `LLMService` 实现，协议本身不用动。
+> - `GenerationErrorCode` 里 `COMMAND_NOT_FOUND`/`INTERACTIVE_PROMPT_REQUIRED`/`APPROVAL_REQUIRED`/
+>   `LOGIN_REQUIRED`/`UNSUPPORTED_TOOL_CALLING`/`SCHEMA_VALIDATION_FAILED` 这些是本地 CLI 子进程后端
+>   才有的失败模式，直连云端 HTTPS API 用不上，没有照搬；换成了直连 HTTP 真实会遇到的网络层失败、
+>   429 限流、5xx 服务端错误。
 
 ---
 

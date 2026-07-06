@@ -264,7 +264,10 @@ Step F 就绪      → 标记 ready，写入快照时间
   - 缺失块必须写进 Prompt（"新闻/基本面：本地不支持"），防止 LLM 幻觉补数据；具体做法是把 `ContextPack.blocks` 按固定顺序逐块渲染，`not_supported` 的块直接输出"状态：本地不支持"这行字面文案。
   - **买卖点指令（§0.5-1）**：Prompt 必须显式要求 LLM 结合 `levels` 块（支撑/阻力位）与技术面数据，产出结构化 `sniper_points`（`ideal_buy/secondary_buy/stop_loss/take_profit`）；若 LLM 未给出 `stop_loss`，端上使用 `support_levels[0]` 作为确定性回退（S7.4）。
   - `RuleScore` 除了给 `ContextPack.technical` 块提供数值摘要外，还单独把 `signalReasons`/`riskFactors`（`_generate_signal` 产出的中文可读原因，如"✅ 强势多头，顺势做多"）整段附进 Prompt，作为规则引擎给出评分的依据说明，而不是让 LLM 只看数字自己现编理由。
-- **LLMService（Swift）**：抽象 `func generate(system:String, user:String) async throws -> String`；实现直连云端 API（用户在设置里填 Key，Keychain 存储）。对应 Python `GenerationBackend.generate` 的最小子集。
+- **LLMService（Swift，S10 已落地）**：抽象 `func generate(system:String, user:String) async throws -> String`；对应 Python `GenerationBackend.generate` 的最小子集，去掉了流式/工具调用/JSON schema 校验这些单轮问答用不到的参数。
+  - **协议与实现分开**：`LLMService` 是纯协议，具体实现 `OpenAICompatibleLLMService` 只是其中一种；测试可以直接注入 mock，以后要接别的连线方式（比如原生 Anthropic Messages API）新增一个协议实现即可，`PromptBuilder`、以后的问答 UI 都只依赖协议本身。
+  - **连线格式是一个需要你知道的决策，不是 task.md/plan.md 原文规定的**：具体实现走的是 OpenAI 兼容的 `/chat/completions` 格式（`{model, messages:[{role,content}]} → {choices:[{message:{content}}]}`），不是 Anthropic 原生 Messages API 格式。选这个格式是因为个人使用场景下大概率会指向的云端服务（OpenAI 本身、以及很多其他厂商的兼容端点）大多实现的是这一种，`Configuration.endpoint/model` 都是可配置的，不锁定具体厂商。如果你想直接接 Anthropic 原生格式，需要另外加一个 `LLMService` 实现。
+  - **错误分类参照但不照搬 `GenerationErrorCode`**：那个枚举里 `COMMAND_NOT_FOUND`/`INTERACTIVE_PROMPT_REQUIRED`/`APPROVAL_REQUIRED`/`LOGIN_REQUIRED` 这些是本地 CLI 子进程后端（`local_cli_backend.py`）才会遇到的失败模式，直连云端 HTTPS API 不会碰到，照搬只会搬来一堆用不上的 case；保留/新增的是任务里点名的三种（超时/鉴权/空输出）加上直连 HTTP 真实会遇到但 Python 侧因为走 LiteLLM 不需要自己处理的（网络层失败、429 限流、5xx）。
 - **会话隔离与压缩**：每股独立消息数组；超长时按 `chat_context` 的 5 段式摘要思路做端上压缩（可先本地截断，后续接 LLM 压缩）。
 
 ---
