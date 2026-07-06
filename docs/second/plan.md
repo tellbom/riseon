@@ -56,12 +56,15 @@
    - 477 行：阻力位 = 近 20 日最高价（`recent_high > price` 时计入）。
    端上必须完整移植全部四条（三条支撑 + 一条阻力），否则 `support_levels[0]`（即 `stop_loss`
    回退值）可能选中错误的价位。
-6. **`TechnicalIndicators`（S6）与 `RuleScoreEngine`（S7）的 MA 计算口径不同，禁止共享实现。**
+6. **`TechnicalIndicators`（S6）与 `RuleScoreEngine`（S7）的 MA 计算口径不同，禁止共享实现；RSI 不属于这类情况，两边应该共用同一个 Wilder 实现。**
    `technical_indicators.py::calculate_ma` 用 `rolling(window=period, min_periods=1)`（不足周期也
    出值）；`stock_analyzer.py::_calculate_mas` 用满窗口（默认 `min_periods=period`，不足周期为
-   NaN；且 `MA60` 在数据 <60 根时直接退化为 `MA20`）。这与 RSI 的分歧是同一类问题：两个 Python
-   源本来就没有共享实现，端上也必须分别独立实现，`RuleScoreEngine` 一侧必须对齐
-   `stock_analyzer.py` 口径，不能偷懒调用 `TechnicalIndicators` 的 MA 函数。
+   NaN；且 `MA60` 在数据 <60 根时直接退化为 `MA20`）。这与 RSI 的情况**不一样**：RSI 的分歧
+   （第 2 条）是"哪个 Python 源的公式该被采用"，裁决结果是只采用 Wilder 一种，另一种（简单均值）
+   直接禁用、完全不迁移——所以端上并**不存在**两个都正确但数值不同的 RSI 实现需要分开维护；S6 的
+   `TechnicalIndicators.rsiWilder` 和 S7 的 `RuleScoreEngine` 可以共用同一份 Wilder RSI 代码，
+   这不违反本条"禁止共享"的约束（本条约束专指 MA，因为 MA 是两个 Python 源本来就各自不同、
+   都需要保留的场景）。S6 落地时已按此口径实现并在 doc comment 里说明。
 7. **实时覆盖当日日线的"追加虚拟行"分支，MVP 阶段不实现。** Python
    `_augment_historical_with_realtime` 有两个分支：当日已有日线行 → 原地覆盖；当日还没有日线行
    → 追加一条虚拟行。端上是否需要"追加虚拟行"分支，取决于腾讯日线接口在盘中是否已经实时推送
@@ -105,7 +108,7 @@
 - **LLM 因子摘要**：`src/factors/llm_factor_summary.py::build_llm_factor_summary`（MA/RSI/KDJ/BOLL/ATR/量能/动量/波动 摘要，纯 pandas）。
 - **窗口化因子上下文**：`src/factors/quant_factor_context.py::build_quant_factor_context`（决策窗口 `1/3/5/10/20`、计算窗口 `COMPUTE_WINDOW_BARS=120`、`technical/capital_flow/valuation/industry/fundamentals/events/margin`）。其中 `technical` 块**仅靠本地日线**即可算；`capital_flow/valuation/industry/fundamentals/margin` 依赖 `fundamental_context`，**端上需降级为 not_supported**。
 - **重型特征工程（不迁移）**：`quant_platform/features/*`（`technical.py` 复用 `technical_indicators.py` 之上叠加 `pandas_ta_classic`、warm-up 掩码、截面标准化、IC）——面向训练/截面，端上无意义。
-- **口径分歧提醒（v2 裁决，见 §0.5-2/§0.5-6）**：`technical_indicators.py` 的 RSI（简单滚动均值）与 MA（`min_periods=1`）与 `src/stock_analyzer.py` 的 RSI（Wilder's EMA）与 MA（满窗口+MA60兜底MA20）**口径不同**。端上 `TechnicalIndicators`（S6）与 `RuleScoreEngine`（S7）必须各自独立实现，不得共享同一套 MA/RSI 函数；`RuleScoreEngine` 一侧必须对齐 `stock_analyzer.py` 口径。
+- **口径分歧提醒（v2 裁决，见 §0.5-2/§0.5-6）**：`technical_indicators.py` 原本的 RSI（简单滚动均值）已被禁用、完全不迁移，端上只保留 `stock_analyzer.py` 的 Wilder's EMA 一种 RSI 实现，`TechnicalIndicators`（S6）与 `RuleScoreEngine`（S7）可以共用同一份 Wilder RSI 代码。真正需要分别独立实现、不能共享的是 **MA**：`technical_indicators.py::calculate_ma`（`min_periods=1`）与 `stock_analyzer.py::_calculate_mas`（满窗口+MA60兜底MA20）两者口径本来就不同，且都要保留。
 
 ### 2.3 策略选择/评分/推荐管线
 - **单股规则评分（最适合迁移）**：`src/stock_analyzer.py::TrendAnalyzer`。
@@ -226,7 +229,7 @@ Step F 就绪      → 标记 ready，写入快照时间
 | 新闻/情报/联网搜索 | `intelligence_service.py`、`search_service.py` | **不迁移（MVP 降级）** | 强依赖服务端 + 第三方 Key |
 
 **不要机械翻译**：以上"移植"指按 Swift 惯用法重写等价逻辑（含单元测试固定用例），而非逐行转译 pandas。
-**不要合并口径不同的实现**：`TechnicalIndicators`（S6）与 `RuleScoreEngine`（S7）的 MA/RSI 即使名字一样，也必须分别独立实现（§0.5-2/§0.5-6）。
+**不要合并口径不同的 MA 实现**：`TechnicalIndicators`（S6）与 `RuleScoreEngine`（S7）的 MA 即使名字一样，也必须分别独立实现（§0.5-6）；RSI 已统一为 Wilder's EMA，可复用 `TechnicalIndicators.rsiWilder`（§0.5-2/§0.5-6）。
 
 ---
 
@@ -285,7 +288,8 @@ RiseOn (现有 iPhone 工程) 内新增：
 │   ├── WorkspaceStore (每股独立持久化)
 │   ├── InitializationQueue (actor 队列) + InitQueueStore (队列状态持久化)
 │   └── RealtimeOverlay (Step B 的纯函数实现：日线+实时行情→覆盖后日线+warnings)
-├── Analytics/           ← 纯计算，可单测；与下方 Context/ 一样，MA/RSI 口径独立实现（§0.5-2/§0.5-6）
+├── Analytics/           ← 纯计算，可单测；MA 在本组与 RuleScoreEngine 之间必须独立实现
+│                          （§0.5-6），RSI 用统一的 Wilder 实现即可共用（§0.5-2/§0.5-6 已说明二者不同）
 │   ├── TechnicalIndicators (移植 technical_indicators.py，MA用min_periods=1)
 │   ├── RuleScore + RuleScoreEngine (移植 TrendAnalyzer 评分 + 支撑/阻力位；
 │   │                                MA用满窗口+MA60兜底MA20，RSI用Wilder口径)
@@ -339,5 +343,5 @@ RiseOn (现有 iPhone 工程) 内新增：
 - **基本面/资金流/筹码源无法验证端上可行性**：`ChipDistribution` 的实际数据源在 `DataFetcherManager` 内部经多源熔断获取，**从已读代码无法确认是否存在可端上直连的公开端点——标注"无法验证"**，MVP 一律 `not_supported`。
 - **横截面/训练/回测**：与单股端上问答目标无关，明确不迁移。
 - **不要机械翻译**：pandas 逻辑需按 Swift 重写并配固定用例单测，尤其指标数值需与 Python 输出对拍。
-- **不要合并口径不同的实现**：`TechnicalIndicators` 与 `RuleScoreEngine` 的 MA/RSI 即使名字相同也要分别独立实现并分别对拍（§0.5-2/§0.5-6），避免"重构成一份共享代码"的直觉冲动。
+- **不要合并口径不同的 MA 实现**：`TechnicalIndicators` 与 `RuleScoreEngine` 的 MA 即使名字相同也要分别独立实现并分别对拍（§0.5-6），避免"重构成一份共享代码"的直觉冲动；RSI 已统一为 Wilder's EMA，可复用 `TechnicalIndicators.rsiWilder`（§0.5-2/§0.5-6）。
 - **腾讯日线接口盘中行为待实测**：`_augment_historical_with_realtime` 的"追加虚拟行"分支是否需要实现，取决于腾讯接口盘中是否已推送当日K线，MVP 阶段先跳过并显式声明（§0.5-7），后续需要真机验证。

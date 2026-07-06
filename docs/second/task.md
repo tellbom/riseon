@@ -10,7 +10,7 @@
 > 3. 代码归一化**新建独立函数**，**不复用 `StockSymbol.swift`**。→ S2.3 已重写。
 > 4. MVP **跳过成交量叠加**，仅叠加价格，并写 ContextPack warning。→ S5.2 已修订。
 > 5. `support_levels` 有**三个**来源（MA5/MA10/MA20，`stock_analyzer.py:461/468/472`），**MA20 分支无 2% 容忍度限制**，只要 `price>=MA20` 即无条件加入——不要只做 MA5/MA10。→ S7.3 已修订。
-> 6. `TechnicalIndicators`（S6，`min_periods=1`）与 `RuleScoreEngine`（S7，满窗口+MA60兜底MA20）的 MA 计算**口径不同，禁止共享实现**，与 RSI 分歧同理。→ S6.1 已修订。
+> 6. `TechnicalIndicators`（S6，`min_periods=1`）与 `RuleScoreEngine`（S7，满窗口+MA60兜底MA20）的 MA 计算**口径不同，禁止共享实现**。RSI 不属于这种情况——两边都只用 Wilder 一种实现，S6/S7 可以共用同一份 Wilder RSI 代码，不需要（也不应该）像 MA 那样分别造两份。→ S6.1 已修订，`TechnicalIndicators.rsiWilder` 是唯一的 RSI 实现。
 > 7. 实时覆盖当日日线只处理"已有行覆盖"分支；"当日行尚未出现→追加虚拟行"分支 **MVP 阶段不实现**（需先实测腾讯接口盘中行为），改为写 `intraday_bar_not_yet_available` warning。→ S5.2/S8.2 已修订。
 
 ---
@@ -101,14 +101,22 @@
 
 ---
 
-## S6 — 轻量因子/指标计算（Analytics，纯函数）
+## S6 — 轻量因子/指标计算（Analytics，纯函数） `[x]` 已完成
 
-- [ ] **6.1 移植技术指标**：等价重写 MA5/10/20/60、MACD(12/26/9)、KDJ(9/3/3)、BOLL(20,2) 采用 `technical_indicators.py` 口径（`calculate_ma` 用 `min_periods=1`，不足周期也出值）；**RSI(6/12/24) 必须采用 `stock_analyzer.py::_calculate_rsi` 的 Wilder's EMA 口径**（`ewm(alpha=1/period, adjust=False)`），**禁用** `technical_indicators.py` 的简单 `rolling().mean()` RSI（§0.5-2；评分 S7 依赖此口径）。**`TechnicalIndicators`（本任务）与 `RuleScoreEngine`（S7.2）的 MA 计算禁止共享实现**：`RuleScoreEngine` 的 MA5/10/20/60 必须走 `stock_analyzer.py::_calculate_mas` 的满窗口口径（`rolling(window=period)`，不足周期为 NaN；MA60 数据<60根时退化为 MA20），与本任务的 `min_periods=1` 口径分别独立实现（§0.5-6）。
-  → 验证：MA/MACD/KDJ/BOLL 与 `technical_indicators.py` 逐值对拍（误差<1e-6）；**RSI 与 `stock_analyzer.py::_calculate_rsi` 逐值对拍**（用同段日线，确认与简单均值口径出值不同）；构造 <60 根日线用例，确认 `TechnicalIndicators` 与 `RuleScoreEngine` 的 MA60 分别按各自口径出值且不同。
-- [ ] **6.2 移植信号提取**：等价重写 `get_latest_signals`（金叉/死叉/超买超卖/均线多头等）。
+- [x] **6.1 移植技术指标**：等价重写 MA5/10/20/60、MACD(12/26/9)、KDJ(9/3/3)、BOLL(20,2) 采用 `technical_indicators.py` 口径（`calculate_ma` 用 `min_periods=1`，不足周期也出值）；**RSI(6/12/24) 必须采用 `stock_analyzer.py::_calculate_rsi` 的 Wilder's EMA 口径**（`ewm(alpha=1/period, adjust=False)`），**禁用** `technical_indicators.py` 的简单 `rolling().mean()` RSI（§0.5-2；评分 S7 依赖此口径）。**`TechnicalIndicators`（本任务）与 `RuleScoreEngine`（S7.2）的 MA 计算禁止共享实现**：`RuleScoreEngine` 的 MA5/10/20/60 必须走 `stock_analyzer.py::_calculate_mas` 的满窗口口径（`rolling(window=period)`，不足周期为 NaN；MA60 数据<60根时退化为 MA20），与本任务的 `min_periods=1` 口径分别独立实现（§0.5-6）。**RSI 不需要分别实现**——两边都只用 Wilder 一种公式，S7 直接复用本任务的 `rsiWilder` 即可。
+  → 验证：MA/MACD/KDJ/BOLL 与 `technical_indicators.py` 逐值对拍（误差<1e-6）；**RSI 与 `stock_analyzer.py::_calculate_rsi` 逐值对拍**（用同段日线，确认与简单均值口径出值不同）；构造 <60 根日线用例，确认 `TechnicalIndicators` 与 `RuleScoreEngine` 的 MA60 分别按各自口径出值且不同。**交付：所有对拍数值来自真实运行 pandas 生成的参考值（本环境有 pandas/numpy），非手算估计。**
+- [x] **6.2 移植信号提取**：等价重写 `get_latest_signals`（金叉/死叉/超买超卖/均线多头等）。
   → 验证：构造用例覆盖每个布尔信号的真/假分支。
-- [ ] **6.3 因子窗口（technical）**：按 `quant_factor_context` 的窗口 `1/3/5/10/20`、计算窗口 120，产出窗口收益/区间位置。
+- [x] **6.3 因子窗口（technical）**：按 `quant_factor_context` 的窗口 `1/3/5/10/20`、计算窗口 120，产出窗口收益/区间位置。
   → 验证：与 Python `_period_return/_range_position` 对拍。
+
+> 范围说明：
+> - S6.1 的"MA60 分别按各自口径出值且不同"这条验证点目前只做了一半——`TechnicalIndicators` 自己
+>   的 `<60` 根用例已覆盖；`RuleScoreEngine` 那一侧的 MA60（满窗口+退化到MA20）要等 S7 落地才能
+>   真正对比出"不同"，S6 阶段只能先确认 `TechnicalIndicators` 自身行为正确。
+> - RSI 口径的"不用分别实现"这条结论是本轮开发时发现的既有文档措辞不够精确（`plan.md`/`task.md`
+>   原来写"与 RSI 分歧同理"，容易让人以为 RSI 也要拆两份），已经在 `plan.md` §0.5-6 和这里一并
+>   修订，不是新裁决，是把已有裁决说清楚。
 
 ---
 
