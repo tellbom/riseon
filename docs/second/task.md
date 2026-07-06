@@ -120,21 +120,35 @@
 
 ---
 
-## S7 — 策略评分引擎（RuleScoreEngine，纯函数）
+## S7 — 策略评分引擎（RuleScoreEngine，纯函数） `[x]` 已完成
 
-- [ ] **7.1 移植枚举**：`TrendStatus/VolumeStatus/BuySignal/MACDStatus/RSIStatus`（保留中文语义标签）。
+- [x] **7.1 移植枚举**：`TrendStatus/VolumeStatus/BuySignal/MACDStatus/RSIStatus`（保留中文语义标签）。
   → 验证：枚举齐全，与 `stock_analyzer.py` 一致。
-- [ ] **7.2 移植评分**：权重 **趋势30/乖离20/量能15/支撑10/MACD15/RSI10**，输出 `signal_score(0-100)`。
-  → 验证：对若干真实日线，Swift 评分与 Python `_generate_signal` 一致（容忍阈值边界）。
-- [ ] **7.3 支撑/阻力位（替代原"买卖点"任务，§0.5-1）**：移植 `TrendAnalyzer._analyze_support_resistance` 的完整 `support_levels`/`resistance_levels` 逻辑（`stock_analyzer.py:448-479`），包含**全部三个支撑位来源**（§0.5-5，不要漏掉第三个）：
+- [x] **7.2 移植评分**：权重 **趋势30/乖离20/量能15/支撑10/MACD15/RSI10**，输出 `signal_score(0-100)`。
+  → 验证：对若干真实日线，Swift 评分与 Python `_generate_signal` 一致（容忍阈值边界）。**交付：多头/空头/盘整各一例，逐字段与真实运行 stock_analyzer.py 的输出对拍，全字段一致（不止 signal_score）。**
+- [x] **7.3 支撑/阻力位（替代原"买卖点"任务，§0.5-1）**：移植 `TrendAnalyzer._analyze_support_resistance` 的完整 `support_levels`/`resistance_levels` 逻辑（`stock_analyzer.py:448-479`），包含**全部三个支撑位来源**（§0.5-5，不要漏掉第三个）：
   - MA5 支撑（461行）：`|price-MA5|/MA5 <= 2%` 且 `price>=MA5` 时加入；
   - MA10 支撑（468行）：`|price-MA10|/MA10 <= 2%` 且 `price>=MA10` 时加入（去重）；
   - **MA20 支撑（472行，容易漏掉）**：只要 `price>=MA20` 就无条件加入，**没有 2% 容忍度限制**；
   - 阻力位（477行）：近 20 日最高价，且 `recent_high > price` 时加入。
   写入 ContextPack `levels` 块，供 LLM 生成买卖点参考。**本任务不产出 `ideal_buy/secondary_buy/take_profit`**。
-  → 验证：多头/空头/盘整各一例，`support_levels`（含全部三个来源）与阻力位与 Python `TrendAnalyzer` 一致；`support_levels[0]` 可作为 `stop_loss` 确定性回退值备用。
-- [ ] **7.4 买卖点归属声明（不实现规则）**：`ideal_buy/secondary_buy/stop_loss/take_profit` 属 `dashboard.battle_plan.sniper_points`，由 **LLM 生成**（见 S9/S10）。端上仅保留 `stop_loss ← support_levels[0]` 的确定性回退（当 LLM 缺该字段时）。
+  → 验证：多头/空头/盘整各一例，`support_levels`（含全部三个来源）与阻力位与 Python `TrendAnalyzer` 一致；`support_levels[0]` 可作为 `stop_loss` 确定性回退值备用。**另有专门回归用例覆盖 MA20 append 无去重检查这个不对称细节（见 plan.md §0.5-5 补充）。**
+- [x] **7.4 买卖点归属声明（不实现规则）**：`ideal_buy/secondary_buy/stop_loss/take_profit` 属 `dashboard.battle_plan.sniper_points`，由 **LLM 生成**（见 S9/S10）。端上仅保留 `stop_loss ← support_levels[0]` 的确定性回退（当 LLM 缺该字段时）。
   → 验证：代码中无端上规则买卖点实现；LLM 缺 `stop_loss` 时回退逻辑有单测。
+
+> 范围说明：
+> - `RuleScoreEngine` 的 MACD/RSI 计算直接复用 `TechnicalIndicators.macd`/`TechnicalIndicators.rsiWilder`
+>   （两个 Python 源公式完全一致，见 plan.md §0.5-6 补充），只有 MA 是独立实现（满窗口 +
+>   MA60 兜底 MA20，与 `TechnicalIndicators` 的 `min_periods=1` 版本分别维护）。
+> - S6 遗留的"MA60 在 TechnicalIndicators 与 RuleScoreEngine 两边分别出值且不同"这条验证点，
+>   现在 S7 落地后已补full对比单测（同一份 <60 根日线喂给两边，确认数值确实不同）。
+> - 对拍方法：本轮没有手算参考值，而是把 `stock_analyzer.py::StockTrendAnalyzer` 原样复制成一个
+>   不依赖 `src.config` 的独立脚本（只把 `get_config().bias_threshold` 换成字面量 5.0，其余逻辑
+>   逐行未改），在真实 pandas 环境里跑出参考结果；又把 Swift 实现逐行搬成等价 Python 独立验证一遍，
+>   两边在牛市/熊市/盘整三个构造用例上逐字段完全一致后才写进 Swift 测试文件。过程中发现最初用等比
+>   数列构造的牛市/熊市样例会让"均线间距是否走阔"这个判断落在浮点误差量级的临界点上（pandas 内部
+>   rolling 实现和逐点重算的求和顺序不同，可能翻转结果）——这不是逻辑错误，是样例本身脆弱，已换成
+>   加速增长/衰减的样例，留出几个百分点的余量。
 
 ---
 

@@ -55,7 +55,11 @@
      "移植 MA5/MA10 支撑"这种简化描述下被漏掉。
    - 477 行：阻力位 = 近 20 日最高价（`recent_high > price` 时计入）。
    端上必须完整移植全部四条（三条支撑 + 一条阻力），否则 `support_levels[0]`（即 `stop_loss`
-   回退值）可能选中错误的价位。
+   回退值）可能选中错误的价位。**S7 落地时确认另一处容易漏掉的细节**：468 行 MA10 的
+   append 有 `if result.ma10 not in result.support_levels` 去重检查，但 472 行 MA20 的
+   append **没有**——如果 MA20 恰好等于已经加入的 MA5/MA10 数值，Python 会往
+   `support_levels` 里插入一个字面重复值。端上是**如实复刻**这个不对称，不是"顺手修掉"，
+   已有专门回归用例验证（构造 MA5=MA10=MA20 的场景，确认 Swift 也产出同样的重复项）。
 6. **`TechnicalIndicators`（S6）与 `RuleScoreEngine`（S7）的 MA 计算口径不同，禁止共享实现；RSI 不属于这类情况，两边应该共用同一个 Wilder 实现。**
    `technical_indicators.py::calculate_ma` 用 `rolling(window=period, min_periods=1)`（不足周期也
    出值）；`stock_analyzer.py::_calculate_mas` 用满窗口（默认 `min_periods=period`，不足周期为
@@ -64,7 +68,10 @@
    直接禁用、完全不迁移——所以端上并**不存在**两个都正确但数值不同的 RSI 实现需要分开维护；S6 的
    `TechnicalIndicators.rsiWilder` 和 S7 的 `RuleScoreEngine` 可以共用同一份 Wilder RSI 代码，
    这不违反本条"禁止共享"的约束（本条约束专指 MA，因为 MA 是两个 Python 源本来就各自不同、
-   都需要保留的场景）。S6 落地时已按此口径实现并在 doc comment 里说明。
+   都需要保留的场景）。S6 落地时已按此口径实现并在 doc comment 里说明。**S7 落地时确认 MACD
+   也属于可共享的一类**：`technical_indicators.py::calculate_macd` 与
+   `stock_analyzer.py::_calculate_macd` 公式、周期（12/26/9）、`adjust=False` 完全一致，
+   `RuleScoreEngine` 直接复用 `TechnicalIndicators.macd`，未重新实现一遍。
 7. **实时覆盖当日日线的"追加虚拟行"分支，MVP 阶段不实现。** Python
    `_augment_historical_with_realtime` 有两个分支：当日已有日线行 → 原地覆盖；当日还没有日线行
    → 追加一条虚拟行。端上是否需要"追加虚拟行"分支，取决于腾讯日线接口在盘中是否已经实时推送
@@ -229,7 +236,7 @@ Step F 就绪      → 标记 ready，写入快照时间
 | 新闻/情报/联网搜索 | `intelligence_service.py`、`search_service.py` | **不迁移（MVP 降级）** | 强依赖服务端 + 第三方 Key |
 
 **不要机械翻译**：以上"移植"指按 Swift 惯用法重写等价逻辑（含单元测试固定用例），而非逐行转译 pandas。
-**不要合并口径不同的 MA 实现**：`TechnicalIndicators`（S6）与 `RuleScoreEngine`（S7）的 MA 即使名字一样，也必须分别独立实现（§0.5-6）；RSI 已统一为 Wilder's EMA，可复用 `TechnicalIndicators.rsiWilder`（§0.5-2/§0.5-6）。
+**不要合并口径不同的 MA 实现**：`TechnicalIndicators`（S6）与 `RuleScoreEngine`（S7）的 MA 即使名字一样，也必须分别独立实现（§0.5-6）；RSI 已统一为 Wilder's EMA，可复用 `TechnicalIndicators.rsiWilder`（§0.5-2/§0.5-6）。MACD 公式也一致，`RuleScoreEngine` 可复用 `TechnicalIndicators.macd`。
 
 ---
 
@@ -343,5 +350,5 @@ RiseOn (现有 iPhone 工程) 内新增：
 - **基本面/资金流/筹码源无法验证端上可行性**：`ChipDistribution` 的实际数据源在 `DataFetcherManager` 内部经多源熔断获取，**从已读代码无法确认是否存在可端上直连的公开端点——标注"无法验证"**，MVP 一律 `not_supported`。
 - **横截面/训练/回测**：与单股端上问答目标无关，明确不迁移。
 - **不要机械翻译**：pandas 逻辑需按 Swift 重写并配固定用例单测，尤其指标数值需与 Python 输出对拍。
-- **不要合并口径不同的 MA 实现**：`TechnicalIndicators` 与 `RuleScoreEngine` 的 MA 即使名字相同也要分别独立实现并分别对拍（§0.5-6），避免"重构成一份共享代码"的直觉冲动；RSI 已统一为 Wilder's EMA，可复用 `TechnicalIndicators.rsiWilder`（§0.5-2/§0.5-6）。
+- **不要合并口径不同的 MA 实现**：`TechnicalIndicators` 与 `RuleScoreEngine` 的 MA 即使名字相同也要分别独立实现并分别对拍（§0.5-6），避免"重构成一份共享代码"的直觉冲动；RSI 已统一为 Wilder's EMA，可复用 `TechnicalIndicators.rsiWilder`，MACD 公式一致，可复用 `TechnicalIndicators.macd`（§0.5-2/§0.5-6）。
 - **腾讯日线接口盘中行为待实测**：`_augment_historical_with_realtime` 的"追加虚拟行"分支是否需要实现，取决于腾讯接口盘中是否已推送当日K线，MVP 阶段先跳过并显式声明（§0.5-7），后续需要真机验证。
