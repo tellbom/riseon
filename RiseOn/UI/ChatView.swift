@@ -299,40 +299,69 @@ private struct MessageBubble: View {
     let message: ChatMessage
 
     var body: some View {
-        HStack {
+        HStack(alignment: .top, spacing: 8) {
             if message.role == .assistant {
-                bubble
-                Spacer(minLength: 32)
+                ChatAvatar(role: message.role)
+                VStack(alignment: .leading, spacing: 4) {
+                    senderLabel
+                    bubble
+                    timestamp(alignment: .leading)
+                }
+                Spacer(minLength: 36)
             } else {
-                Spacer(minLength: 32)
-                bubble
+                Spacer(minLength: 36)
+                VStack(alignment: .trailing, spacing: 4) {
+                    senderLabel
+                    bubble
+                    timestamp(alignment: .trailing)
+                }
+                ChatAvatar(role: message.role)
             }
         }
     }
 
     private var bubble: some View {
-        VStack(alignment: message.role == .assistant ? .leading : .trailing, spacing: 4) {
-            MarkdownText(content: message.content)
-                .font(.body)
-                .foregroundStyle(message.role == .assistant ? Color.primary : Color.white)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 10)
-                .background(
-                    message.role == .assistant ? Color(.secondarySystemBackground) : Color.accentColor
-                )
-                .clipShape(bubbleShape)
-                .textSelection(.enabled)
-                .contextMenu {
-                    Button {
-                        UIPasteboard.general.string = message.content
-                    } label: {
-                        Label("复制", systemImage: "doc.on.doc")
-                    }
+        MarkdownText(content: message.content, isAssistant: message.role == .assistant)
+            .padding(.horizontal, message.role == .assistant ? 14 : 13)
+            .padding(.vertical, message.role == .assistant ? 12 : 10)
+            .background(bubbleBackground)
+            .clipShape(bubbleShape)
+            .shadow(color: shadowColor, radius: message.role == .assistant ? 8 : 3, y: 2)
+            .textSelection(.enabled)
+            .contextMenu {
+                Button {
+                    UIPasteboard.general.string = message.content
+                } label: {
+                    Label("复制", systemImage: "doc.on.doc")
                 }
-            Text(message.createdAt.formatted(date: .omitted, time: .shortened))
-                .font(.caption2)
-                .foregroundStyle(.secondary)
+            }
+    }
+
+    private var senderLabel: some View {
+        Text(message.role == .assistant ? "RiseOn" : "你")
+            .font(.caption2.weight(.medium))
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 2)
+    }
+
+    private func timestamp(alignment: Alignment) -> some View {
+        Text(message.createdAt.formatted(date: .omitted, time: .shortened))
+            .font(.caption2)
+            .foregroundStyle(.tertiary)
+            .frame(maxWidth: .infinity, alignment: alignment)
+            .padding(.horizontal, 2)
+    }
+
+    private var bubbleBackground: some ShapeStyle {
+        if message.role == .assistant {
+            AnyShapeStyle(.regularMaterial)
+        } else {
+            AnyShapeStyle(Color.accentColor.gradient)
         }
+    }
+
+    private var shadowColor: Color {
+        message.role == .assistant ? Color.black.opacity(0.08) : Color.accentColor.opacity(0.18)
     }
 
     private var bubbleShape: some Shape {
@@ -342,6 +371,43 @@ private struct MessageBubble: View {
             bottomTrailingRadius: message.role == .assistant ? 16 : 4,
             topTrailingRadius: 16
         )
+    }
+}
+
+private struct ChatAvatar: View {
+    let role: ChatRole
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(background)
+            Image(systemName: role == .assistant ? "sparkles" : "person.fill")
+                .font(.system(size: role == .assistant ? 13 : 14, weight: .semibold))
+                .foregroundStyle(.white)
+        }
+        .frame(width: 32, height: 32)
+        .shadow(color: shadowColor, radius: 4, y: 2)
+        .accessibilityHidden(true)
+    }
+
+    private var background: some ShapeStyle {
+        if role == .assistant {
+            AnyShapeStyle(LinearGradient(
+                colors: [Color.blue, Color.teal],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            ))
+        } else {
+            AnyShapeStyle(LinearGradient(
+                colors: [Color.gray.opacity(0.72), Color.gray.opacity(0.48)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            ))
+        }
+    }
+
+    private var shadowColor: Color {
+        role == .assistant ? Color.blue.opacity(0.18) : Color.black.opacity(0.08)
     }
 }
 
