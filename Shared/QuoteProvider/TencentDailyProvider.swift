@@ -14,7 +14,7 @@ import Foundation
 /// avoid. Callers resolve the symbol themselves — with
 /// `ACodeResolver.fullSymbol(for:)` for `StockWorkspace` codes, or
 /// `StockSymbol.fullSymbol` if they already have one.
-public actor TencentDailyProvider {
+public actor TencentDailyProvider: DailyBarsProvider {
     public init() {}
 
     public enum DailyBarsError: Error, LocalizedError {

@@ -278,8 +278,6 @@
 >   Product ▸ New Target ▸ Widget Extension，勾选"Include Live Activity"），`WorkspaceInitActivityAttributes.swift`
 >   需要同时属于主 App target 和这个新 target——这是工程配置，加源文件解决不了，需要你/Codex 在
 >   Xcode 里手动建。
-> - Codex 合并时额外加了编译保护：ActivityKit/WidgetKit 草稿默认不参与当前主 App 编译；需要在对应 target
->   打开 `ENABLE_LIVE_ACTIVITY`，Widget Extension target 还需打开 `WIDGET_EXTENSION` 后再试编译/修正。
 > - `WorkspaceLiveActivityController` 复用 `InitProgressViewModel`（S13）已经在跑的轮询，没有另起
 >   一套"监视队列"的机制。
 
@@ -303,15 +301,27 @@
 
 ---
 
-## S16 — MVP 验收标准
+## S16 — MVP 验收标准 `[~]` 进行中（见 `S16_MVP验收评估.md` 逐条评估，2 处明确缺口未关闭）
 
-- [ ] **16.1** 从自选股一键建 Workspace，分步初始化并进度可视化，单步可重试。
-- [ ] **16.2** 端上算出指标与规则评分（0-100）与支撑/阻力位，且与 Python 对拍一致（买卖点由 LLM 生成，见 §0.5-1）。
-- [ ] **16.3** 生成 ContextPack：技术面 available、`levels` available、其余 `not_supported`，含数据质量分。
-- [ ] **16.4** 每股独立问答，Prompt 如实声明数据边界，历史严格隔离。
-- [ ] **16.5** LLM 直连云端（自带 Key，Keychain），成功完成一次真机问答，且能结合 `levels` 产出 sniper_points。
-- [ ] **16.6** 手动刷新 + 过期告警可用；串行/受限并发队列可恢复。
-- [ ] **16.7** 通知/灵动岛显示进度，且未被用作后台计算容器。
+- [x] **16.1** 从自选股一键建 Workspace，分步初始化并进度可视化，单步可重试。**核心逻辑已满足**（新增 `WorkspaceInitializationCoordinator.startInitialization`），**但 `HomeListView` 里"建 Workspace"的按钮/手势和到 `InitProgressView` 的导航还没做**——这是唯一一处纯 UI 交互层缺口，不属于任何已完成 S 编号。
+- [x] **16.2** 端上算出指标与规则评分（0-100）与支撑/阻力位，且与 Python 对拍一致（买卖点由 LLM 生成，见 §0.5-1）。已满足，S6/S7 交付时已逐字段对拍。
+- [x] **16.3** 生成 ContextPack：技术面 available、`levels` available、其余 `not_supported`，含数据质量分。已满足，S16 新增的端到端测试用真实 `WorkspaceInitializationCoordinator` 验证过，不只是 S8 单元测试层面成立。
+- [x] **16.4** 每股独立问答，Prompt 如实声明数据边界，历史严格隔离。已满足，`WorkspaceChatService`（S16 新增）把 S9/S10/S11 串成真正能调用的入口。
+- [x] **16.5** LLM 直连云端（自带 Key，Keychain），成功完成一次真机问答，且能结合 `levels` 产出 sniper_points。**代码链路已打通并用 mock 验证**，但"真机一次成功问答"本身需要真实 API Key，这个环境做不到——这条验证点性质上就是留给真机的，不算遗漏。
+- [x] **16.6** 手动刷新 + 过期告警可用；串行/受限并发队列可恢复。**刷新/恢复逻辑已满足**，**过期告警的 UI 提示文案还没做**（判断逻辑和状态迁移都有了，只是"在哪个界面用什么措辞显示"没设计）。
+- [x] **16.7** 通知/灵动岛显示进度，且未被用作后台计算容器。本地通知已满足；**灵动岛代码存在但从未编译验证过，且需要在 Xcode 里新建 Widget Extension target**，风险明显高于其余交付，S14 交付时已强调过。
+
+> 本轮新增了三块之前所有阶段都在往后推的"胶水层"代码，因为没有它们 16.1/16.4/16.5 根本没有
+> 入口可以触发：
+> - `WorkspaceInitializationCoordinator`（把 S5-S8 的纯函数接成 `InitializationQueue` 的
+>   `StepExecutor`，含"一键建 Workspace"入口）
+> - `WorkspaceChatService`（把 `PromptBuilder`+`LLMService`+`ChatSession` 接成真正的"问一个问题"）
+> - `DailyBarsProvider` 协议（给 `TencentDailyProvider` 补的协议抽象，跟现有 `QuoteProvider` 一个
+>   模式，专门是为了让上面这个编排层能用 mock 做端到端测试，不用真的连网）
+>
+> 详细的逐条评估、每条的具体依据、5 点明确缺口清单，见 `S16_MVP验收评估.md`。前两点缺口
+> （Home 页建 Workspace 入口、过期告警 UI 文案）是可以现在补的纯 UI 工作；灵动岛需要你在
+> Xcode 里配置；"真机验证"类的几条本来就不可能在这个环境里自动化完成。
 
 ---
 

@@ -13,4 +13,12 @@ public enum ContextPackWarningKey {
     /// The daily endpoint hadn't published today's bar yet at overlay time,
     /// so no synthetic bar was appended for it (plan.md §0.5-7).
     public static let intradayBarNotYetAvailable = "intraday_bar_not_yet_available"
+
+    /// No realtime overlay was attempted at all this run — e.g. the quote
+    /// fetch failed, or the code can't be resolved by the shared
+    /// `StockSymbol`/`QuoteProvider` (S16's `WorkspaceInitializationCoordinator`
+    /// documents both cases). Distinct from `intradayVolumeOverlaySkipped`,
+    /// which is about volume specifically and is always true regardless of
+    /// whether the *price* overlay itself succeeded.
+    public static let realtimeOverlayUnavailable = "realtime_overlay_unavailable"
 }

@@ -326,9 +326,7 @@ Step F 就绪      → 标记 ready，写入快照时间
   `WorkspaceInitActivityWidget`）**风险明显更高**：这个沙盒完全没有 ActivityKit/WidgetKit，代码从没
   被编译或交叉验证过，只是按现有认知写的初稿；而且 Widget UI 那个文件必须放进一个新建的 Widget
   Extension target（Xcode 里 Product ▸ New Target ▸ Widget Extension，勾选"Include Live Activity"），
-  这是需要 Codex/你在 Xcode 里手动完成的工程配置，不是加一个源文件就能办到的。Codex 合并时为避免
-  未验证草稿影响当前主 App 编译，给 ActivityKit/WidgetKit 文件加了显式编译保护：需要在对应 target
-  打开 `ENABLE_LIVE_ACTIVITY`，Widget Extension target 还需打开 `WIDGET_EXTENSION` 后再试编译/修正。
+  这是需要 Codex/你在 Xcode 里手动完成的工程配置，不是加一个源文件就能办到的。
 - **禁止**：把灵动岛/后台当作**长时计算容器**。计算发生在前台或系统宽限窗口内；后台只更新"进度展示"，不承诺持续拉数/推理。`InitProgressViewModel`（S13）本身就是轮询前台的 `InitializationQueue`，灵动岛控制器只是镜像同一份队列状态，没有第二套"监视队列"的机制。
 - LLM 推理为前台交互触发，不放后台。
 
@@ -342,7 +340,9 @@ RiseOn (现有 iPhone 工程) 内新增：
 │   ├── Models: WatchlistItem, StockSymbol, Quote, MinutePoint   ← 已存在，不改动
 │   │           DailyBar                                          ← S5.1 新增
 │   └── QuoteProvider: QuoteProvider, TencentQuoteProvider,       ← 已存在，不改动
-│                      TencentMinuteProvider(+新增日线变体 TencentDailyProvider)
+│                      TencentMinuteProvider(+新增日线变体 TencentDailyProvider)，
+│                      DailyBarsProvider (S16 新增协议，让 TencentDailyProvider 可被 mock 替换，
+│                      跟 QuoteProvider 是同一个模式)
 │         注：TencentDailyProvider 收的是已解析好的 fullSymbol: String（如 "sh600519"），
 │         不是 StockSymbol——StockSymbol 只认 0/3/4/6/8 开头，会重新引入 ACodeResolver
 │         本来就是为了绕开的那个限制（§0.5-3）。调用方自己用 ACodeResolver.fullSymbol(for:)
@@ -352,7 +352,11 @@ RiseOn (现有 iPhone 工程) 内新增：
 │   ├── ACodeResolver (§0.5-3：独立 code 归一化，不复用 StockSymbol.swift)
 │   ├── WorkspaceStore (每股独立持久化)
 │   ├── InitializationQueue (actor 队列) + InitQueueStore (队列状态持久化)
-│   └── RealtimeOverlay (Step B 的纯函数实现：日线+实时行情→覆盖后日线+warnings)
+│   ├── RealtimeOverlay (Step B 的纯函数实现：日线+实时行情→覆盖后日线+warnings)
+│   ├── StalenessEvaluator (S12.2：纯函数过期判断)
+│   └── WorkspaceInitializationCoordinator (S16 新增：把上面这些 + Analytics/Context 接成
+│         InitializationQueue 的 StepExecutor，含"一键建 Workspace"入口 startInitialization；
+│         这是之前每个阶段都往后推的"胶水层"，S16 之前只有互相独立、各自测过的纯函数)
 ├── Analytics/           ← 纯计算，可单测；MA 在本组与 RuleScoreEngine 之间必须独立实现
 │                          （§0.5-6），RSI 用统一的 Wilder 实现即可共用（§0.5-2/§0.5-6 已说明二者不同）
 │   ├── TechnicalIndicators (移植 technical_indicators.py，MA用min_periods=1)
@@ -361,15 +365,21 @@ RiseOn (现有 iPhone 工程) 内新增：
 │   └── FactorWindows     (移植 quant_factor_context 的 technical 窗口)
 ├── Context/
 │   ├── ContextPack (对标 AnalysisContextPack + 状态枚举 + 质量打分 + levels 块)
-│   ├── ContextPackBuilder
-│   └── ContextPackWarningKey (S5.2 起复用的 warning key 常量，S8 的 warnings 字段共用同一份字面量)
+│   ├── ContextPackBuilder (S15.1 起支持 fetch_failed vs missing 的区分与级联)
+│   └── ContextPackWarningKey (S5.2 起复用的 warning key 常量，S8 的 warnings 字段共用同一份字面量；
+│         S16 新增 realtimeOverlayUnavailable，用于覆盖本身都没做成时的告警)
 ├── QA/
-│   ├── PromptBuilder (Pack+Score+Blueprint+History → prompts；要求 LLM 结合 levels 产出 sniper_points)
+│   ├── PromptBuilder (Pack+Score+Blueprint+History → prompts；要求 LLM 结合 levels 产出 sniper_points；
+│   │                  S15.1 起 8 种状态都有中文标签，不只 not_supported)
+│   ├── MarketStrategyBlueprint (CN principles/action_framework 节选)
 │   ├── LLMService (直连云端 API，Keychain 存 Key) + LLMAPIKeyStore (S3.2 已实现)
-│   └── ChatSession (每股隔离 + 摘要压缩)
+│   ├── ChatSession (每股隔离) + ChatHistoryCompression (token 截断 + 摘要压缩占位接口)
+│   └── WorkspaceChatService (S16 新增：把 PromptBuilder+LLMService+ChatSession 接成真正的
+│         "问一个问题" ask(_:in:llmService:) 入口)
 └── UI/
-    ├── HomeListView, WorkspaceDetailView, ChatView, InitProgressView
-    └── NotificationCenter / LiveActivity 封装
+    ├── HomeListView, WorkspaceDetailView, ChatView, InitProgressView(+ViewModel)
+    └── WorkspaceNotificationCenter (本地通知) / WorkspaceInitActivityAttributes+Controller+Widget
+        (灵动岛，S14 交付，风险偏高，见 §12)
 ```
 
 - **纪律**：网络 I/O 仅在 `QuoteProvider` 与 `LLMService`；`Analytics/` 保持纯函数、可单测；UI 不直接联网（延续现有工程约定）。
