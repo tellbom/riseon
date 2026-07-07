@@ -1,4 +1,7 @@
 import SwiftUI
+#if ENABLE_LIVE_ACTIVITY && canImport(ActivityKit)
+import ActivityKit
+#endif
 
 /// Step-by-step initialization progress screen (task.md S13.1, plan.md §4.4):
 /// shows Steps A-E (Step F "就绪" is a terminal state, not itself a step —
@@ -12,6 +15,9 @@ import SwiftUI
 struct InitProgressView: View {
     @StateObject private var viewModel: InitProgressViewModel
     let workspaceStore: WorkspaceStore
+#if ENABLE_LIVE_ACTIVITY && canImport(ActivityKit)
+    @State private var liveActivity: Activity<WorkspaceInitActivityAttributes>?
+#endif
 
     init(code: String, queue: InitializationQueue, workspaceStore: WorkspaceStore) {
         self.workspaceStore = workspaceStore
@@ -60,8 +66,46 @@ struct InitProgressView: View {
             }
         }
         .navigationTitle("初始化进度")
-        .task { await viewModel.observe() }
+        .task {
+            await viewModel.refreshSnapshot()
+            await startLiveActivityIfNeeded()
+            await updateLiveActivityIfNeeded()
+            await viewModel.observe()
+            await settleLiveActivityIfNeeded()
+        }
+        .onChange(of: viewModel.tasks) {
+            Task { await updateLiveActivityIfNeeded() }
+        }
+        .onChange(of: viewModel.outcome) {
+            Task { await settleLiveActivityIfNeeded() }
+        }
     }
+
+#if ENABLE_LIVE_ACTIVITY && canImport(ActivityKit)
+    private func startLiveActivityIfNeeded() async {
+        guard liveActivity == nil, viewModel.outcome == nil else { return }
+        guard #available(iOS 16.2, *), ActivityAuthorizationInfo().areActivitiesEnabled else { return }
+
+        let workspace = try? await workspaceStore.load(code: viewModel.code)
+        let name = workspace?.name.isEmpty == false ? workspace?.name ?? viewModel.code : viewModel.code
+        liveActivity = try? WorkspaceLiveActivityController.start(code: viewModel.code, name: name)
+    }
+
+    private func updateLiveActivityIfNeeded() async {
+        guard #available(iOS 16.2, *), let liveActivity, viewModel.outcome == nil else { return }
+        await WorkspaceLiveActivityController.update(liveActivity, tasks: viewModel.tasks)
+    }
+
+    private func settleLiveActivityIfNeeded() async {
+        guard #available(iOS 16.2, *), let liveActivity, let outcome = viewModel.outcome else { return }
+        await WorkspaceLiveActivityController.end(liveActivity, outcome: outcome)
+        self.liveActivity = nil
+    }
+#else
+    private func startLiveActivityIfNeeded() async {}
+    private func updateLiveActivityIfNeeded() async {}
+    private func settleLiveActivityIfNeeded() async {}
+#endif
 }
 
 private struct InitStepRow: View {

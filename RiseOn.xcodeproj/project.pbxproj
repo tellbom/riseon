@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A1B2C3D4E5F6000000000001 /* RiseOnLiveActivityExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6000000000002 /* RiseOnLiveActivityExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		98EB06832FF126570026FD7E /* Stocks Watch App.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = 98EB06792FF126530026FD7E /* Stocks Watch App.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
@@ -25,9 +26,27 @@
 			remoteGlobalIDString = 98EB06782FF126530026FD7E;
 			remoteInfo = "Stocks Watch App";
 		};
+		A1B2C3D4E5F6000000000003 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 98CE91D02FF0328A004BE971 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A1B2C3D4E5F6000000000004;
+			remoteInfo = RiseOnLiveActivityExtension;
+		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
+		A1B2C3D4E5F6000000000005 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				A1B2C3D4E5F6000000000001 /* RiseOnLiveActivityExtension.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		98EB06842FF126570026FD7E /* Embed Watch Content */ = {
 			isa = PBXCopyFilesBuildPhase;
 			buildActionMask = 2147483647;
@@ -45,6 +64,7 @@
 		98A100102FF12A010026FD7E /* RiseOnTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RiseOnTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		98CE91D82FF0328A004BE971 /* RiseOn.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = RiseOn.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		98EB06792FF126530026FD7E /* Stocks Watch App.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Stocks Watch App.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		A1B2C3D4E5F6000000000002 /* RiseOnLiveActivityExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = RiseOnLiveActivityExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -66,6 +86,11 @@
 		98EB067A2FF126530026FD7E /* Stocks Watch App */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = "Stocks Watch App";
+			sourceTree = "<group>";
+		};
+		A1B2C3D4E5F6000000000006 /* RiseOnLiveActivityExtension */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = RiseOnLiveActivityExtension;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -92,6 +117,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		A1B2C3D4E5F6000000000007 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -99,6 +131,7 @@
 			isa = PBXGroup;
 			children = (
 				98CE91DA2FF0328A004BE971 /* RiseOn */,
+				A1B2C3D4E5F6000000000006 /* RiseOnLiveActivityExtension */,
 				98EB067A2FF126530026FD7E /* Stocks Watch App */,
 				98A100112FF12A010026FD7E /* Shared */,
 				98A100122FF12A010026FD7E /* Tests */,
@@ -110,6 +143,7 @@
 			isa = PBXGroup;
 			children = (
 				98CE91D82FF0328A004BE971 /* RiseOn.app */,
+				A1B2C3D4E5F6000000000002 /* RiseOnLiveActivityExtension.appex */,
 				98EB06792FF126530026FD7E /* Stocks Watch App.app */,
 				98A100102FF12A010026FD7E /* RiseOnTests.xctest */,
 			);
@@ -150,11 +184,13 @@
 				98CE91D42FF0328A004BE971 /* Sources */,
 				98CE91D52FF0328A004BE971 /* Frameworks */,
 				98CE91D62FF0328A004BE971 /* Resources */,
+				A1B2C3D4E5F6000000000005 /* Embed Foundation Extensions */,
 				98EB06842FF126570026FD7E /* Embed Watch Content */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				A1B2C3D4E5F6000000000008 /* PBXTargetDependency */,
 				98EB06822FF126570026FD7E /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
@@ -167,6 +203,28 @@
 			productName = RiseOn;
 			productReference = 98CE91D82FF0328A004BE971 /* RiseOn.app */;
 			productType = "com.apple.product-type.application";
+		};
+		A1B2C3D4E5F6000000000004 /* RiseOnLiveActivityExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A1B2C3D4E5F6000000000009 /* Build configuration list for PBXNativeTarget "RiseOnLiveActivityExtension" */;
+			buildPhases = (
+				A1B2C3D4E5F6000000000010 /* Sources */,
+				A1B2C3D4E5F6000000000007 /* Frameworks */,
+				A1B2C3D4E5F6000000000011 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				A1B2C3D4E5F6000000000006 /* RiseOnLiveActivityExtension */,
+			);
+			name = RiseOnLiveActivityExtension;
+			packageProductDependencies = (
+			);
+			productName = RiseOnLiveActivityExtension;
+			productReference = A1B2C3D4E5F6000000000002 /* RiseOnLiveActivityExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
 		};
 		98EB06782FF126530026FD7E /* Stocks Watch App */ = {
 			isa = PBXNativeTarget;
@@ -208,6 +266,9 @@
 					98CE91D72FF0328A004BE971 = {
 						CreatedOnToolsVersion = 26.1;
 					};
+					A1B2C3D4E5F6000000000004 = {
+						CreatedOnToolsVersion = 26.1;
+					};
 					98EB06782FF126530026FD7E = {
 						CreatedOnToolsVersion = 26.1;
 					};
@@ -228,6 +289,7 @@
 			projectRoot = "";
 			targets = (
 				98CE91D72FF0328A004BE971 /* RiseOn */,
+				A1B2C3D4E5F6000000000004 /* RiseOnLiveActivityExtension */,
 				98EB06782FF126530026FD7E /* Stocks Watch App */,
 				98A100132FF12A010026FD7E /* RiseOnTests */,
 			);
@@ -250,6 +312,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		98EB06772FF126530026FD7E /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A1B2C3D4E5F6000000000011 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -280,6 +349,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		A1B2C3D4E5F6000000000010 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -292,6 +368,11 @@
 			isa = PBXTargetDependency;
 			target = 98EB06782FF126530026FD7E /* Stocks Watch App */;
 			targetProxy = 98EB06812FF126570026FD7E /* PBXContainerItemProxy */;
+		};
+		A1B2C3D4E5F6000000000008 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = A1B2C3D4E5F6000000000004 /* RiseOnLiveActivityExtension */;
+			targetProxy = A1B2C3D4E5F6000000000003 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -484,6 +565,7 @@
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphonesimulator*]" = YES;
+				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
 				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphoneos*]" = UIStatusBarStyleDefault;
@@ -502,6 +584,7 @@
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx xros xrsimulator";
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG ENABLE_LIVE_ACTIVITY $(inherited)";
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
@@ -527,6 +610,7 @@
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphonesimulator*]" = YES;
+				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
 				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphoneos*]" = UIStatusBarStyleDefault;
@@ -545,6 +629,7 @@
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx xros xrsimulator";
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "ENABLE_LIVE_ACTIVITY $(inherited)";
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
@@ -621,6 +706,76 @@
 			};
 			name = Release;
 		};
+		A1B2C3D4E5F6000000000012 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = DP9TL55245;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "RiseOn Live Activity";
+				INFOPLIST_KEY_NSExtension = "{NSExtensionPointIdentifier=com.apple.widgetkit-extension;}";
+				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.1;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.tell.RiseOn.LiveActivityExtension;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG ENABLE_LIVE_ACTIVITY WIDGET_EXTENSION $(inherited)";
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		A1B2C3D4E5F6000000000013 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = DP9TL55245;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "RiseOn Live Activity";
+				INFOPLIST_KEY_NSExtension = "{NSExtensionPointIdentifier=com.apple.widgetkit-extension;}";
+				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.1;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.tell.RiseOn.LiveActivityExtension;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "ENABLE_LIVE_ACTIVITY WIDGET_EXTENSION $(inherited)";
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -656,6 +811,15 @@
 			buildConfigurations = (
 				98EB06852FF126570026FD7E /* Debug */,
 				98EB06862FF126570026FD7E /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A1B2C3D4E5F6000000000009 /* Build configuration list for PBXNativeTarget "RiseOnLiveActivityExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A1B2C3D4E5F6000000000012 /* Debug */,
+				A1B2C3D4E5F6000000000013 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
