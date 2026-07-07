@@ -212,12 +212,20 @@
 
 ---
 
-## S11 — 个股隔离问答历史
+## S11 — 个股隔离问答历史 `[x]` 已完成
 
-- [ ] **11.1 每股独立会话**：`ChatSession` 消息数组随 Workspace 持久化，禁止跨股读取。
-  → 验证：A 股会话不出现在 B 股上下文（代码级断言 + UI 验证）。
-- [ ] **11.2 超长处理**：MVP 先按 token 预算截断；预留 5 段式摘要压缩接口（`chat_context` 思路）。
-  → 验证：长会话不超模型上下文；摘要接口有占位实现。
+- [x] **11.1 每股独立会话**：`ChatSession` 消息数组随 Workspace 持久化，禁止跨股读取。
+  → 验证：A 股会话不出现在 B 股上下文（代码级断言 + UI 验证）。**交付：`StockWorkspace.appendChatMessage`/`replaceChatSession` 在写入前检查 code 一致性，不一致就抛错（用可测试的抛错代替字面意义的崩溃式 assert）；另有端到端用例，两只股票分别写入历史、存盘、重新读回，断言两边内容互不相交，以及 `PromptBuilder` 只会渲染传给它的那个 workspace 的历史，不会看到另一个。**
+- [x] **11.2 超长处理**：MVP 先按 token 预算截断；预留 5 段式摘要压缩接口（`chat_context` 思路）。
+  → 验证：长会话不超模型上下文；摘要接口有占位实现。**交付：token 数用 `len(text)/3` 估算（对齐 `chat_context.py` 在没有真实 tokenizer 时的兜底口径），截断策略是先丢最旧的；`ChatHistorySummarizer` 协议 + 5 个中文标题常量（`ChatSummarySection`）已定义，占位实现 `UnimplementedChatHistorySummarizer` 永远抛 `notImplemented`，真正接 LLM 压缩留到以后。**
+
+> 范围说明：
+> - "代码级断言"这条验证点用的是可抛出的 `Error`，不是 Swift 字面意义的 `assert()`/`precondition()`——
+>   崩溃式断言没法在 XCTest 里干净地断言到，抛错可以，功能上都是"检测到不变量被破坏就立刻失败"，
+>   只是失败的呈现方式选了更利于测试和生产环境可恢复的那种。
+> - 单条最新消息本身就超过 token 预算时，截断结果是空（整条丢弃，不做部分截断）——这是已知的
+>   MVP 简化行为，有专门测试覆盖，不影响当前问题本身（`question` 是 `PromptBuilder` 的独立参数，
+>   不会被这个截断逻辑动到）。
 
 ---
 

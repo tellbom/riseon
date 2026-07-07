@@ -268,7 +268,16 @@ Step F 就绪      → 标记 ready，写入快照时间
   - **协议与实现分开**：`LLMService` 是纯协议，具体实现 `OpenAICompatibleLLMService` 只是其中一种；测试可以直接注入 mock，以后要接别的连线方式（比如原生 Anthropic Messages API）新增一个协议实现即可，`PromptBuilder`、以后的问答 UI 都只依赖协议本身。
   - **连线格式是一个需要你知道的决策，不是 task.md/plan.md 原文规定的**：具体实现走的是 OpenAI 兼容的 `/chat/completions` 格式（`{model, messages:[{role,content}]} → {choices:[{message:{content}}]}`），不是 Anthropic 原生 Messages API 格式。选这个格式是因为个人使用场景下大概率会指向的云端服务（OpenAI 本身、以及很多其他厂商的兼容端点）大多实现的是这一种，`Configuration.endpoint/model` 都是可配置的，不锁定具体厂商。如果你想直接接 Anthropic 原生格式，需要另外加一个 `LLMService` 实现。
   - **错误分类参照但不照搬 `GenerationErrorCode`**：那个枚举里 `COMMAND_NOT_FOUND`/`INTERACTIVE_PROMPT_REQUIRED`/`APPROVAL_REQUIRED`/`LOGIN_REQUIRED` 这些是本地 CLI 子进程后端（`local_cli_backend.py`）才会遇到的失败模式，直连云端 HTTPS API 不会碰到，照搬只会搬来一堆用不上的 case；保留/新增的是任务里点名的三种（超时/鉴权/空输出）加上直连 HTTP 真实会遇到但 Python 侧因为走 LiteLLM 不需要自己处理的（网络层失败、429 限流、5xx）。
-- **会话隔离与压缩**：每股独立消息数组；超长时按 `chat_context` 的 5 段式摘要思路做端上压缩（可先本地截断，后续接 LLM 压缩）。
+- **会话隔离与压缩（S11 已落地）**：每股独立消息数组，隔离约束落实为 `StockWorkspace` 上的
+  `appendChatMessage`/`replaceChatSession` 两个方法，写入前检查 `chatSession.code == workspace.code`，
+  不一致就抛错而不是崩溃——用抛错代替字面意义的 `assert`/`precondition`，是因为可抛出的错误能被
+  正常单测断言到，而进程崩溃没法在 XCTest 里干净地断言到；task.md 里"代码级断言"这个说法按检查逻辑
+  存在、能测到来理解，不是必须用 Swift 的 `assert()` 关键字才算数。超长时按 token 预算截断
+  （`len(text)/3` 估算 token 数，与 `chat_context.py` 在没有真实 tokenizer 时的兜底口径一致；
+  丢弃策略是先丢最旧的，若单条最新消息本身就超预算，直接整条丢弃，不做部分截断——这个边界行为已知
+  且有测试覆盖）；5 段式摘要压缩接口（`ChatHistorySummarizer` 协议 + `ChatSummarySection` 5 个中文
+  标题常量）只搭了架子，占位实现（`UnimplementedChatHistorySummarizer`）永远抛 `notImplemented`，
+  真正接 LLM 压缩留到以后。
 
 ---
 
