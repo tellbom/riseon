@@ -229,12 +229,24 @@
 
 ---
 
-## S12 — 手动刷新与数据过期评估
+## S12 — 手动刷新与数据过期评估 `[x]` 已完成
 
-- [ ] **12.1 单股刷新**：重跑 Step A–F，更新快照时间与 Pack。
-  → 验证：刷新后数值与快照时间更新。
-- [ ] **12.2 过期评估**：快照日期 < 最近交易日或超阈值→置 `stale` 并提示。
-  → 验证：伪造旧快照→UI 出现"数据过期，建议刷新"。
+- [x] **12.1 单股刷新**：重跑 Step A–F，更新快照时间与 Pack。
+  → 验证：刷新后数值与快照时间更新。**交付：`InitializationQueue.refresh(code)`（强制重跑全部5步，跟只重跑失败那一步的 `retry(_:)` 区分开）+ `StockWorkspace.applyRefreshedPack(...)`（套用新 Pack/评分/快照时间，按 `data_quality.level` 决定落到 `ready` 还是 `partial`）。**
+- [x] **12.2 过期评估**：快照日期 < 最近交易日或超阈值→置 `stale` 并提示。
+  → 验证：伪造旧快照→UI 出现"数据过期，建议刷新"。**交付：`StalenessEvaluator`（纯函数）+ `StockWorkspace.evaluateStaleness(...)`（`ready`/`partial`→`stale`）。"UI 出现提示"这半句是 S13+ 的事，这轮只做了 UI 应该依据的那个判断逻辑和状态迁移。**
+
+> 范围说明：
+> - `InitializationQueue.refresh(code)` 在 code 正处于 active（正在跑）时会抛 `RefreshError.alreadyActive`
+>   而不是硬改它的任务列表——直接改会跟正在跑的 pipeline 产生竞态（那个 pipeline 一开始就拿了一份
+>   任务快照，之后各自往同一份数据里写，谁的结果最终生效说不清楚）。这不是遗漏，是刻意设计成"重跑
+>   中的不能再触发重跑，等它跑完/失败了再说"。
+> - `StalenessEvaluator` 不认识交易日历（哪天是交易日）——"最近交易日"是外部传入的参数，跟 S5.2 的
+>   `RealtimeOverlay` 让调用方传 `isTradingDay` 是同一个理由（保持纯函数，不在这个类型里塞日历逻辑）。
+>   交易日历本身还没有实现，不在 S12 范围内。
+> - `refresh()`/`applyRefreshedPack` 之间"真正重新拉数据、算指标、打分、建包"这一整套编排逻辑
+>   （把 S5-S8 的纯函数/actor 接成 `InitializationQueue` 的 `StepExecutor`）还没有实现——这是留给
+>   以后的编排任务，S12 本身只交付了刷新/过期这两个状态管理动作。
 
 ---
 

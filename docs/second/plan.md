@@ -284,8 +284,17 @@ Step F 就绪      → 标记 ready，写入快照时间
 ## 10. 本地缓存与刷新策略
 
 - **缓存**：每股 `ContextPack + RuleScore` 落盘；附 `created_at` 与"交易日快照日期"。
-- **过期评估**：若快照日期 < 最近交易日，或距今超过阈值（如收盘后自然日 > N），标记 `stale`，UI 提示"数据过期，建议刷新"。
-- **手动刷新**：单股刷新 = 重跑 Step A–F；不做后台自动轮询（省电、避免免费端点被限流，延续现有 Watch MVP 原则）。
+- **过期评估（S12.2 已落地）**：若快照日期 < 最近交易日，或距今超过阈值（如收盘后自然日 > N，
+  端上默认 N=3），标记 `stale`，UI 提示"数据过期，建议刷新"。`StalenessEvaluator` 是纯函数，不自带
+  交易日历知识（跟 `RealtimeOverlay` 的 `isTradingDay` 参数一个道理）——"最近交易日"由调用方传入，
+  交易日历本身还没实现，不在这轮范围内。UI 提示这半句验证点留给 S13+。
+- **手动刷新（S12.1 已落地）**：单股刷新 = 重跑 Step A–F；不做后台自动轮询（省电、避免免费端点被限流，延续现有 Watch MVP 原则）。
+  实现上分两块：`InitializationQueue.refresh(code)` 强制重跑全部 5 步（不管之前是成功还是失败，
+  跟只重跑失败那一步的 `retry(_:)` 不一样），以及 `StockWorkspace.applyRefreshedPack(...)` 把重跑
+  结果（新 Pack/评分/快照时间）套用回 workspace，并根据新 Pack 的 `data_quality.level`
+  决定落到 `ready` 还是 `partial`。这两者之间的"真正重新拉数据、算指标、打分、建包"这一整套编排
+  逻辑还没有实现——那需要把 S5-S8 的各个纯函数/actor 拼起来喂给 `InitializationQueue` 的
+  `StepExecutor`，是留给以后的编排任务，不在 S12 范围内。
 
 ---
 

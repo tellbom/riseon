@@ -176,6 +176,42 @@ public actor InitializationQueue {
         return true
     }
 
+    // MARK: - Manual refresh (S12.1)
+
+    public enum RefreshError: Error, Equatable, Sendable {
+        /// `code` is currently mid-flight (in `activeCodes`). Resetting its
+        /// task list out from under an in-flight `runPipeline` run would
+        /// race with that run's own writes — wait for it to finish (or fail)
+        /// first, then refresh.
+        case alreadyActive
+    }
+
+    /// Forces a fully fresh run of all 5 steps for `code` (task.md S12.1),
+    /// regardless of its previous outcome — unlike `retry(_:)` (which only
+    /// re-drives the step that failed, leaving earlier successes alone),
+    /// this resets everything, including steps that had already succeeded.
+    /// Used for manual "refresh this stock" (S12.1) and for re-initializing
+    /// a workspace whose snapshot has gone stale (S12.2).
+    ///
+    /// If `code` isn't tracked at all yet, this behaves like `enqueue(_:)` —
+    /// "refresh" just means "make sure a fresh run is queued", regardless of
+    /// whether one ever ran before.
+    @discardableResult
+    public func refresh(_ code: String) async throws -> Bool {
+        guard !activeCodes.contains(code) else {
+            throw RefreshError.alreadyActive
+        }
+
+        tasksByCode[code] = InitStep.allCases.map { InitTask(code: code, step: $0) }
+        outcomes[code] = nil
+        if !pendingCodes.contains(code) {
+            pendingCodes.append(code)
+        }
+        await persist()
+        admitPendingUpToCapacity()
+        return true
+    }
+
     // MARK: - Observation (for callers and tests)
 
     public func tasks(for code: String) -> [InitTask]? {
