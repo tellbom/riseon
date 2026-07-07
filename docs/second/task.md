@@ -264,21 +264,42 @@
 
 ---
 
-## S14 — 通知与灵动岛增强
+## S14 — 通知与灵动岛增强 `[x]` 已完成（灵动岛部分风险偏高，见范围说明）
 
-- [ ] **14.1 本地通知**：初始化完成/失败发本地通知。
-  → 验证：后台完成时收到通知。
-- [ ] **14.2 灵动岛 Live Activity**：显示初始化进度（**仅展示**，非后台计算容器）。
-  → 验证：灵动岛显示进度；不承诺后台持续拉数（对照 `plan.md` §12 边界）。
+- [x] **14.1 本地通知**：初始化完成/失败发本地通知。
+  → 验证：后台完成时收到通知。**交付：`WorkspaceNotificationCenter`，文案拼装（`content(for:name:outcome:)`）是纯函数，单测覆盖了成功/失败每个 step 的措辞；实际调用 `UNUserNotificationCenter` 那部分（权限弹窗、真实送达）需要真机验证，这个环境做不到。**
+- [x] **14.2 灵动岛 Live Activity**：显示初始化进度（**仅展示**，非后台计算容器）。
+  → 验证：灵动岛显示进度；不承诺后台持续拉数（对照 `plan.md` §12 边界）。**交付：`WorkspaceInitActivityAttributes`（数据模型）+ `WorkspaceLiveActivityController`（start/update/end）+ `WorkspaceInitActivityWidget`（灵动岛/锁屏 UI 草稿）。**
+
+> 范围说明（**灵动岛这部分置信度明显低于其他所有交付，务必在 Xcode 里重新过一遍**）：
+> - 这个沙盒完全没有 ActivityKit/WidgetKit（没有 Apple SDK），S14.2 的三个文件从未被编译或交叉验证过，
+>   是按现有认知写的初稿，不是像其余 S1-S15 那样经过人工逐行核对或 Python 交叉验证的交付物。
+> - `WorkspaceInitActivityWidget.swift` 必须放进一个**新建的 Widget Extension target**（Xcode 里
+>   Product ▸ New Target ▸ Widget Extension，勾选"Include Live Activity"），`WorkspaceInitActivityAttributes.swift`
+>   需要同时属于主 App target 和这个新 target——这是工程配置，加源文件解决不了，需要你/Codex 在
+>   Xcode 里手动建。
+> - Codex 合并时额外加了编译保护：ActivityKit/WidgetKit 草稿默认不参与当前主 App 编译；需要在对应 target
+>   打开 `ENABLE_LIVE_ACTIVITY`，Widget Extension target 还需打开 `WIDGET_EXTENSION` 后再试编译/修正。
+> - `WorkspaceLiveActivityController` 复用 `InitProgressViewModel`（S13）已经在跑的轮询，没有另起
+>   一套"监视队列"的机制。
 
 ---
 
-## S15 — 错误处理、降级与恢复
+## S15 — 错误处理、降级与恢复 `[x]` 已完成
 
-- [ ] **15.1 分块降级**：任一数据步失败→对应块置 `fetch_failed/not_supported`，不阻塞 ready。
-  → 验证：断网初始化仍能进入"部分就绪"，问答可用且如实声明缺失。
-- [ ] **15.2 队列恢复**：见 4.2/4.3，端到端联调。
-  → 验证：多股批量初始化中断→恢复→全部完成或明确失败可重试。
+- [x] **15.1 分块降级**：任一数据步失败→对应块置 `fetch_failed/not_supported`，不阻塞 ready。
+  → 验证：断网初始化仍能进入"部分就绪"，问答可用且如实声明缺失。**交付：`ContextPackBuilder.Inputs` 新增 `quoteFetchFailed`/`dailyBarsFetchFailed` 两个标志，区分"从没试过"（`missing`）和"试了但失败"（`fetch_failed`）；`dailyBarsFetchFailed` 会级联到 `technical`/`factors`/`levels`（根因是网络失败还是数据量不够，如实反映，不笼统合并成 `missing`）。`PromptBuilder` 的状态渲染从"只有 not_supported 有中文标签"扩展成"8 种状态全部都有"，系统提示词的诚实声明规则也从"只提 not_supported"扩展到"任何非 available 状态都要如实告知"。有一条端到端用例：全部拉取失败→质量分 poor→workspace 仍能到 `.partial`（不是卡死）→ Prompt 里能看到"拉取失败"字样。**
+- [x] **15.2 队列恢复**：见 4.2/4.3，端到端联调。
+  → 验证：多股批量初始化中断→恢复→全部完成或明确失败可重试。**交付：5 只股票混合场景（2只已完成/1只中断在某步/1只已耗尽重试彻底失败/1只从没开始）→ 用真实 `InitializationQueue`+`InitQueueStore` 模拟重启恢复→验证全部有明确结局、已耗尽重试的那只手动重试后能追到成功、恢复过程仍然遵守并发上限、恢复完的最终状态确实落盘（用第二次"重启"验证不是只存在内存里）。**
+
+> 范围说明：
+> - S15.1 改的是已有的 `ContextPackBuilder`/`PromptBuilder`（S8/S9 的文件），不是新建文件——新增的
+>   两个 flag 都有默认值 `false`，S8 阶段写的旧单测不受影响、行为不变；只有显式传 `true` 才会触发
+>   `fetch_failed` 分支。
+> - S15.1 顺带把 S9 一处偏窄的实现补全了：之前只有 `not_supported` 状态在 Prompt 里有专门的中文
+>   说法，其余状态直接显示英文 `rawValue`（如"partial"）。现在 8 种状态全都有对应中文标签，这不是
+>   新裁决，是把"如实声明缺失"这个已有要求做得更完整——S9 那份测试文件里两处断言原来写的是英文
+>   状态字符串，这次一并改成了对应中文。
 
 ---
 

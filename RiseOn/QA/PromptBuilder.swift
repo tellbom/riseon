@@ -48,6 +48,7 @@ public enum PromptBuilder {
     硬性规则：
     - 只使用本轮提供的数据作答，不得编造、猜测数据之外的行情、新闻、财务数据或市场消息。
     - 如果某个数据块被标注为"本地不支持"（如新闻、基本面、筹码、资金流），必须如实告知用户这类信息本地拿不到，不能假装拥有、也不能用其他数据臆测替代。
+    - 如果某个数据块状态是"拉取失败""已过期""部分可用"等非"可用"状态（不只是"本地不支持"），同样要如实告知用户这部分数据当前有局限、可能不完整或不是最新的，不能当作完整可靠的数据使用。
     - 必须向用户声明数据快照时间与数据质量等级；如果整体质量是 limited 或 poor，或者存在 warnings，需要明确提示用户数据可能过期或不完整，让用户自行判断是否需要刷新。
     - 结合 `levels` 块给出的支撑位/阻力位与技术指标数据，给出结构化的买卖点建议：ideal_buy（理想买入价）、secondary_buy（次选买入价）、stop_loss（止损价）、take_profit（止盈价），并说明依据。若你自己没有更合适的止损位判断，可以直接参考 `levels` 块里的第一个支撑位作为保守止损参考。
     - 所有回答仅供参考、不构成投资建议，不承诺收益，不规避亏损风险。
@@ -126,19 +127,38 @@ public enum PromptBuilder {
         ContextBlockKey.events: "事件日历",
     ]
 
+    /// Chinese label for every `ContextFieldStatus`, not just
+    /// `.notSupported` (task.md S15.1: any degraded status — a failed
+    /// fetch, a stale/partial block — must be stated honestly, not just
+    /// the "not supported" case).
+    private static let statusDisplayNames: [ContextFieldStatus: String] = [
+        .available: "可用",
+        .missing: "缺失",
+        .notSupported: "本地不支持",
+        .fallback: "已降级",
+        .stale: "已过期",
+        .estimated: "估算值",
+        .partial: "部分可用",
+        .fetchFailed: "拉取失败",
+    ]
+
     private static func renderBlocks(_ pack: ContextPack) -> String {
         blockOrder.compactMap { key -> String? in
             guard let block = pack.blocks[key] else { return nil }
             let title = blockDisplayNames[key] ?? key
+            let statusLabel = statusDisplayNames[block.status] ?? block.status.rawValue
 
             // Explicit, unmissable "本地不支持" line -- task.md S9.1's own
             // verification point is that this literal phrase shows up for
-            // unsupported blocks, not just an implied absence.
+            // unsupported blocks, not just an implied absence. Other
+            // degraded statuses (fetch_failed/stale/partial/...) get the
+            // same treatment via `statusDisplayNames` below, just without
+            // skipping the item details (those are still worth showing).
             if block.status == .notSupported {
-                return "### \(title)\n状态：本地不支持"
+                return "### \(title)\n状态：\(statusLabel)"
             }
 
-            var lines = ["### \(title)", "状态：\(block.status.rawValue)"]
+            var lines = ["### \(title)", "状态：\(statusLabel)"]
             for itemKey in block.items.keys.sorted() {
                 guard let item = block.items[itemKey] else { continue }
                 if let value = item.value {

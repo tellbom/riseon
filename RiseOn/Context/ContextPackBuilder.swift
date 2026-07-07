@@ -34,6 +34,19 @@ public enum ContextPackBuilder {
         /// `intradayBarNotYetAvailable`.
         public var overlayWarnings: [String]
         public var quote: Quote?
+        /// Whether Step B (realtime quote) was attempted and failed —
+        /// distinguishes "we tried and it broke" (`fetch_failed`, task.md
+        /// S15.1) from "we never got that far" (`missing`). Only meaningful
+        /// when `quote == nil`; ignored otherwise.
+        public var quoteFetchFailed: Bool
+        /// Whether Step A (fetch daily bars) was attempted and failed —
+        /// same distinction as `quoteFetchFailed`, for `dailyBars`. This
+        /// also cascades into `technical`/`factors`/`levels`: if there are
+        /// no bars *because the fetch failed*, those derived blocks report
+        /// `fetch_failed` too rather than a generic `missing`, so the
+        /// person/LLM can tell "network broke" from "not enough history
+        /// yet" apart (task.md S15.1's "如实声明缺失").
+        public var dailyBarsFetchFailed: Bool
         public var technicalSeries: TechnicalIndicators.Series?
         public var latestSignals: TechnicalIndicators.LatestSignals?
         public var ruleScore: RuleScore?
@@ -47,6 +60,8 @@ public enum ContextPackBuilder {
             dailyBars: [DailyBar] = [],
             overlayWarnings: [String] = [],
             quote: Quote? = nil,
+            quoteFetchFailed: Bool = false,
+            dailyBarsFetchFailed: Bool = false,
             technicalSeries: TechnicalIndicators.Series? = nil,
             latestSignals: TechnicalIndicators.LatestSignals? = nil,
             ruleScore: RuleScore? = nil,
@@ -57,6 +72,8 @@ public enum ContextPackBuilder {
             self.dailyBars = dailyBars
             self.overlayWarnings = overlayWarnings
             self.quote = quote
+            self.quoteFetchFailed = quoteFetchFailed
+            self.dailyBarsFetchFailed = dailyBarsFetchFailed
             self.technicalSeries = technicalSeries
             self.latestSignals = latestSignals
             self.ruleScore = ruleScore
@@ -70,20 +87,30 @@ public enum ContextPackBuilder {
     public static func build(_ inputs: Inputs) -> ContextPack {
         var blocks: [String: ContextBlock] = [:]
 
-        blocks[ContextBlockKey.quote] = buildQuoteBlock(quote: inputs.quote)
-        blocks[ContextBlockKey.dailyBars] = buildDailyBarsBlock(bars: inputs.dailyBars, overlayWarnings: inputs.overlayWarnings)
+        blocks[ContextBlockKey.quote] = buildQuoteBlock(quote: inputs.quote, fetchFailed: inputs.quoteFetchFailed)
+        blocks[ContextBlockKey.dailyBars] = buildDailyBarsBlock(
+            bars: inputs.dailyBars,
+            overlayWarnings: inputs.overlayWarnings,
+            fetchFailed: inputs.dailyBarsFetchFailed
+        )
         blocks[ContextBlockKey.technical] = buildTechnicalBlock(
             bars: inputs.dailyBars,
             series: inputs.technicalSeries,
             signals: inputs.latestSignals,
-            ruleScore: inputs.ruleScore
+            ruleScore: inputs.ruleScore,
+            dailyBarsFetchFailed: inputs.dailyBarsFetchFailed
         )
         blocks[ContextBlockKey.factors] = buildFactorsBlock(
             bars: inputs.dailyBars,
             windowReturns: inputs.windowReturns,
-            rangePosition20d: inputs.rangePosition20d
+            rangePosition20d: inputs.rangePosition20d,
+            dailyBarsFetchFailed: inputs.dailyBarsFetchFailed
         )
-        blocks[ContextBlockKey.levels] = buildLevelsBlock(bars: inputs.dailyBars, ruleScore: inputs.ruleScore)
+        blocks[ContextBlockKey.levels] = buildLevelsBlock(
+            bars: inputs.dailyBars,
+            ruleScore: inputs.ruleScore,
+            dailyBarsFetchFailed: inputs.dailyBarsFetchFailed
+        )
         blocks[ContextBlockKey.chip] = notSupportedBlock(reason: "端上无法直连筹码分布数据源")
         blocks[ContextBlockKey.fundamentals] = notSupportedBlock(reason: "端上无法直连基本面数据源")
         blocks[ContextBlockKey.news] = notSupportedBlock(reason: "端上不支持新闻/情报联网检索")
@@ -101,12 +128,11 @@ public enum ContextPackBuilder {
 
     // MARK: - Block builders
 
-    private static func buildQuoteBlock(quote: Quote?) -> ContextBlock {
+    private static func buildQuoteBlock(quote: Quote?, fetchFailed: Bool) -> ContextBlock {
         guard let quote else {
-            return ContextBlock(
-                status: .missing,
-                items: ["quote": ContextItem(status: .missing, missingReason: "未获取到实时行情")]
-            )
+            let status: ContextFieldStatus = fetchFailed ? .fetchFailed : .missing
+            let reason = fetchFailed ? "拉取实时行情失败" : "未获取到实时行情"
+            return ContextBlock(status: status, items: ["quote": ContextItem(status: status, missingReason: reason)])
         }
         let items: [String: ContextItem] = [
             "price": ContextItem(status: .available, value: .double(quote.price)),
@@ -120,12 +146,11 @@ public enum ContextPackBuilder {
         return ContextBlock(status: .available, items: items, source: "tencent_realtime")
     }
 
-    private static func buildDailyBarsBlock(bars: [DailyBar], overlayWarnings: [String]) -> ContextBlock {
+    private static func buildDailyBarsBlock(bars: [DailyBar], overlayWarnings: [String], fetchFailed: Bool) -> ContextBlock {
         guard let last = bars.last else {
-            return ContextBlock(
-                status: .missing,
-                items: ["daily_bars": ContextItem(status: .missing, missingReason: "未获取到日线数据")]
-            )
+            let status: ContextFieldStatus = fetchFailed ? .fetchFailed : .missing
+            let reason = fetchFailed ? "拉取日线失败" : "未获取到日线数据"
+            return ContextBlock(status: status, items: ["daily_bars": ContextItem(status: status, missingReason: reason)])
         }
         // Historically-complete but today's bar hasn't been published yet
         // (plan.md §0.5-7) -> partial, not a clean available; the daily
@@ -143,13 +168,13 @@ public enum ContextPackBuilder {
         bars: [DailyBar],
         series: TechnicalIndicators.Series?,
         signals: TechnicalIndicators.LatestSignals?,
-        ruleScore: RuleScore?
+        ruleScore: RuleScore?,
+        dailyBarsFetchFailed: Bool
     ) -> ContextBlock {
         guard !bars.isEmpty, let series, let last = series.ma5.indices.last else {
-            return ContextBlock(
-                status: .missing,
-                items: ["technical": ContextItem(status: .missing, missingReason: "无日线数据，无法计算技术指标")]
-            )
+            let status: ContextFieldStatus = dailyBarsFetchFailed ? .fetchFailed : .missing
+            let reason = dailyBarsFetchFailed ? "日线拉取失败，无法计算技术指标" : "无日线数据，无法计算技术指标"
+            return ContextBlock(status: status, items: ["technical": ContextItem(status: status, missingReason: reason)])
         }
 
         var items: [String: ContextItem] = [
@@ -190,13 +215,13 @@ public enum ContextPackBuilder {
     private static func buildFactorsBlock(
         bars: [DailyBar],
         windowReturns: [Int: Double],
-        rangePosition20d: Double?
+        rangePosition20d: Double?,
+        dailyBarsFetchFailed: Bool
     ) -> ContextBlock {
         guard !bars.isEmpty else {
-            return ContextBlock(
-                status: .missing,
-                items: ["factors": ContextItem(status: .missing, missingReason: "无日线数据")]
-            )
+            let status: ContextFieldStatus = dailyBarsFetchFailed ? .fetchFailed : .missing
+            let reason = dailyBarsFetchFailed ? "日线拉取失败，无法计算因子窗口" : "无日线数据"
+            return ContextBlock(status: status, items: ["factors": ContextItem(status: status, missingReason: reason)])
         }
 
         var items: [String: ContextItem] = [:]
@@ -221,12 +246,14 @@ public enum ContextPackBuilder {
         )
     }
 
-    private static func buildLevelsBlock(bars: [DailyBar], ruleScore: RuleScore?) -> ContextBlock {
+    private static func buildLevelsBlock(bars: [DailyBar], ruleScore: RuleScore?, dailyBarsFetchFailed: Bool) -> ContextBlock {
         guard let ruleScore, bars.count >= RuleScoreEngine.minimumBarsRequired else {
-            return ContextBlock(
-                status: .missing,
-                items: ["levels": ContextItem(status: .missing, missingReason: "数据不足，无法计算支撑/阻力位")]
-            )
+            // Only actually a *fetch* failure if there's no daily-bar data
+            // at all because of it; bars merely being too few (but present)
+            // to reach the 20-bar minimum is still `missing`, not `fetch_failed`.
+            let status: ContextFieldStatus = (bars.isEmpty && dailyBarsFetchFailed) ? .fetchFailed : .missing
+            let reason = status == .fetchFailed ? "日线拉取失败，无法计算支撑/阻力位" : "数据不足，无法计算支撑/阻力位"
+            return ContextBlock(status: status, items: ["levels": ContextItem(status: status, missingReason: reason)])
         }
 
         var items: [String: ContextItem] = [

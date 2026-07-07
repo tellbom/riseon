@@ -216,18 +216,22 @@ Step F 就绪      → 标记 ready，写入快照时间
   **不迁移** `phase` 字段与 `to_safe_dict()/model_copy()`：`phase` 是服务端管道的执行阶段记录，端上没有对应
   概念；`to_safe_dict()` 是面向多租户服务端的敏感信息脱敏，端上这份 Pack 只会离开设备去到用户自己配置
   的 LLM，不存在"脱敏给谁看"的问题。
-- `blocks`（状态不是写死的，取决于实际拿到的数据）：
-  - `quote`：有实时行情→`available`；没有→`missing`。
+- `blocks`（状态不是写死的，取决于实际拿到的数据；S15.1 已落地"missing vs fetch_failed"的区分——
+  "从来没试过拿"和"试了但失败了"是两种不同状态，`fetch_failed`(25分) 比 `missing`(35分) 分还低，
+  因为一次主动尝试失败暗示"当前环境更可能有实际问题"，比"单纯没有这个数据源"更值得警惕）：
+  - `quote`：有实时行情→`available`；拉取失败→`fetch_failed`；从没试过→`missing`。
   - `daily_bars`：有日线→`available`；日线存在但当日K线还没被日线接口推送（§0.5-7 的
-    `intraday_bar_not_yet_available`）→`partial`；完全没日线→`missing`。
+    `intraday_bar_not_yet_available`）→`partial`；拉取失败（无日线且确实尝试过）→`fetch_failed`；
+    从没试过→`missing`。
   - `technical`：有日线就能算指标（`TechnicalIndicators` 的 `min_periods=1`不挑数据量），但"评分摘要"
     要 `RuleScoreEngine` 那 20 根最低门槛才有意义——够格→`available`；日线存在但不够 20 根→`partial`
-    （指标在但没评分摘要）；完全没日线→`missing`。
+    （指标在但没评分摘要）；日线拉取失败导致完全没日线→级联为 `fetch_failed`（不是笼统的
+    `missing`，如实反映根因是网络失败还是数据量不够）；从没试过→`missing`。
   - `factors`（partial：仅 technical 窗口，参照 `quant_factor_context` 的 `1/3/5/10/20` 窗口与 120 bar
     计算窗口；`capital_flow/valuation/industry/fundamentals/margin` 子块永远没有，所以永远到不了
-    `available`，哪怕 technical 窗口都算出来了）
+    `available`，哪怕 technical 窗口都算出来了；日线拉取失败时同样级联为 `fetch_failed`）
   - `levels`（S7.3 产出的支撑位/阻力位，供 LLM 生成买卖点参考，见 §0.5-1/§0.5-5；同样需要 20 根门槛，
-    不够→`missing`）
+    数据量不够→`missing`；日线本身拉取失败（一根都没有）→`fetch_failed`）
   - `chip / fundamentals / news / capital_flow / events`（**not_supported**，端上无源，`portfolio`
     块不迁移——那是 Python 侧多股组合概念，`StockWorkspace` 设计上是单股隔离，见 §5）
 - `data_quality{overall_score, level(good/usable/limited/poor), block_scores, limitations, warnings}`，
@@ -315,8 +319,17 @@ Step F 就绪      → 标记 ready，写入快照时间
 
 ## 12. 通知、灵动岛与后台行为边界
 
-- **允许**：初始化进度/完成用**本地通知**与**灵动岛（Live Activity）**做**展示增强**。
-- **禁止**：把灵动岛/后台当作**长时计算容器**。计算发生在前台或系统宽限窗口内；后台只更新"进度展示"，不承诺持续拉数/推理。
+- **允许**：初始化进度/完成用**本地通知**与**灵动岛（Live Activity）**做**展示增强**（S14 已落地）。
+  `WorkspaceNotificationCenter`（本地通知）的文案拼装是纯函数（`content(for:name:outcome:)`），
+  单测覆盖了措辞；实际调用 `UNUserNotificationCenter` 那部分没法在这个环境里验证，需要真机确认权限
+  弹窗与实际到达的通知。灵动岛部分（`WorkspaceInitActivityAttributes`/`WorkspaceLiveActivityController`/
+  `WorkspaceInitActivityWidget`）**风险明显更高**：这个沙盒完全没有 ActivityKit/WidgetKit，代码从没
+  被编译或交叉验证过，只是按现有认知写的初稿；而且 Widget UI 那个文件必须放进一个新建的 Widget
+  Extension target（Xcode 里 Product ▸ New Target ▸ Widget Extension，勾选"Include Live Activity"），
+  这是需要 Codex/你在 Xcode 里手动完成的工程配置，不是加一个源文件就能办到的。Codex 合并时为避免
+  未验证草稿影响当前主 App 编译，给 ActivityKit/WidgetKit 文件加了显式编译保护：需要在对应 target
+  打开 `ENABLE_LIVE_ACTIVITY`，Widget Extension target 还需打开 `WIDGET_EXTENSION` 后再试编译/修正。
+- **禁止**：把灵动岛/后台当作**长时计算容器**。计算发生在前台或系统宽限窗口内；后台只更新"进度展示"，不承诺持续拉数/推理。`InitProgressViewModel`（S13）本身就是轮询前台的 `InitializationQueue`，灵动岛控制器只是镜像同一份队列状态，没有第二套"监视队列"的机制。
 - LLM 推理为前台交互触发，不放后台。
 
 ---

@@ -33,7 +33,7 @@ struct InitProgressView: View {
                 }
             case .failed(let step):
                 Section {
-                    Label("在「\(InitStepRow.label(for: step))」这一步失败了", systemImage: "exclamationmark.triangle.fill")
+                    Label("在「\(step.displayName)」这一步失败了", systemImage: "exclamationmark.triangle.fill")
                         .foregroundStyle(.red)
                     Button {
                         Task { await viewModel.retry() }
@@ -66,7 +66,7 @@ private struct InitStepRow: View {
                 .foregroundStyle(iconColor)
                 .imageScale(.large)
             VStack(alignment: .leading, spacing: 2) {
-                Text(Self.label(for: task.step))
+                Text(task.step.displayName)
                 if task.retries > 0 {
                     Text("已重试 \(task.retries) 次")
                         .font(.caption)
@@ -77,7 +77,7 @@ private struct InitStepRow: View {
         }
         .padding(.vertical, 2)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(Self.label(for: task.step))，\(statusAccessibilityLabel)")
+        .accessibilityLabel("\(task.step.displayName)，\(statusAccessibilityLabel)")
     }
 
     private var iconName: String {
@@ -104,16 +104,6 @@ private struct InitStepRow: View {
         case .running: return "进行中"
         case .succeeded: return "已完成"
         case .failed: return "失败"
-        }
-    }
-
-    static func label(for step: InitStep) -> String {
-        switch step {
-        case .fetchDailyBars: return "拉取日线"
-        case .overlayRealtime: return "叠加实时行情"
-        case .computeIndicators: return "计算技术指标"
-        case .computeRuleScore: return "计算规则评分"
-        case .buildPack: return "打包上下文"
         }
     }
 }

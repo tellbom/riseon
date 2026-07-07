@@ -64,8 +64,8 @@ final class PromptBuilderTests: XCTestCase {
 
     func test_availableBlocks_showActualStatusNotUnsupported() {
         let result = PromptBuilder.build(pack: makePack(), ruleScore: nil, history: [], question: "?")
-        XCTAssertTrue(result.user.contains("实时行情\n状态：available"))
-        XCTAssertTrue(result.user.contains("因子窗口\n状态：partial"))
+        XCTAssertTrue(result.user.contains("实时行情\n状态：可用"))
+        XCTAssertTrue(result.user.contains("因子窗口\n状态：部分可用"))
         XCTAssertFalse(result.user.contains("实时行情\n状态：本地不支持"))
     }
 
