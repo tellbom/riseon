@@ -160,7 +160,13 @@
 1. **股票列表页（Home）**：来源=自选股 ∪ 已建 Workspace。每行展示：名称/代码、最新价与涨跌幅（复用 `TencentQuoteProvider`）、Workspace 状态徽标（未建/初始化中/就绪/数据过期/部分缺失）。
 2. **StockWorkspace 详情页**：顶部=行情卡 + 数据质量条（来自 ContextPack `data_quality`）；中部=**规则评分卡**（signal_score、BuySignal、支撑/阻力位、趋势/量能/MACD/RSI 分解；买卖点由 LLM 在问答区给出，见 §0.5-1）；下部=**问答区**（该股独立会话）。
 3. **问答页（Chat）**：仅基于该股 ContextPack + 该股历史；顶部常驻"数据快照时间/质量/缺失块"提示，避免用户误以为有实时新闻。
-4. **初始化态**：进度可视化（分步：日线→指标→评分→打包），失败可重试单步；完成后进入"可问答"。
+4. **初始化态（S13 已落地）**：进度可视化（分步：日线→指标→评分→打包），失败可重试单步；完成后进入"可问答"。
+   `InitProgressViewModel` 用轮询（每 250ms 查一次 `InitializationQueue.tasks(for:)/outcome(for:)`）驱动界面，
+   不是订阅/推送——`InitializationQueue`（S4）目前只有拉取式查询接口，故意没有为了这个 UI 需求去改
+   已经测过的队列调度核心逻辑；初始化本来就是前台、限时的操作（不是后台常驻计算，见 §12 边界），
+   轮询几秒钟的开销可以接受。这个 ViewModel 只负责"看"队列状态，不碰 `StockWorkspace`/`WorkspaceStore`——
+   "队列结束后如何据此更新 workspace 状态"是以后编排任务的事，跟 S4 自己"队列不认识 workspace"的
+   既有边界一致。
 
 设计原则：
 - **诚实呈现数据边界**：凡是端上拿不到的块（新闻/资金流/基本面/筹码），UI 明确显示"不支持/降级/过期"，与 Python 侧 `ContextFieldStatus` 一一对应。
