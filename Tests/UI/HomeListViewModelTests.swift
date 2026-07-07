@@ -41,7 +41,7 @@ final class HomeListViewModelTests: XCTestCase {
             quoteProvider: MockQuoteProvider(),
             isTradingDayToday: { true }
         )
-        let queue = InitializationQueue(executeStep: await coordinator.stepExecutor())
+        let queue = InitializationQueue(executeStep: coordinator.stepExecutor())
         let viewModel = HomeListViewModel(watchlistStore: watchlistStore, workspaceStore: workspaceStore, queue: queue, coordinator: coordinator)
         return (viewModel, queue)
     }

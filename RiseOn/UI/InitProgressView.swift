@@ -11,8 +11,10 @@ import SwiftUI
 /// model rather than touching `WatchlistStore` inline.
 struct InitProgressView: View {
     @StateObject private var viewModel: InitProgressViewModel
+    let workspaceStore: WorkspaceStore
 
-    init(code: String, queue: InitializationQueue) {
+    init(code: String, queue: InitializationQueue, workspaceStore: WorkspaceStore) {
+        self.workspaceStore = workspaceStore
         _viewModel = StateObject(wrappedValue: InitProgressViewModel(code: code, queue: queue))
     }
 
@@ -30,6 +32,11 @@ struct InitProgressView: View {
                     Label("初始化完成", systemImage: "checkmark.circle.fill")
                         .foregroundStyle(.green)
                         .accessibilityLabel("初始化完成")
+                    NavigationLink {
+                        WorkspaceDetailView(code: viewModel.code, workspaceStore: workspaceStore)
+                    } label: {
+                        Label("进入问答", systemImage: "message")
+                    }
                 }
             case .failed(let step):
                 Section {
@@ -114,7 +121,10 @@ private struct InitStepRow: View {
             code: "600519",
             queue: InitializationQueue { _, _ in
                 try await Task.sleep(nanoseconds: 500_000_000)
-            }
+            },
+            workspaceStore: try! WorkspaceStore(
+                directory: FileManager.default.temporaryDirectory.appendingPathComponent("preview-init-\(UUID().uuidString)")
+            )
         )
     }
 }

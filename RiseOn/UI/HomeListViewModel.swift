@@ -16,7 +16,7 @@ public final class HomeListViewModel: ObservableObject {
     @Published public var selectedCode: String?
 
     private let watchlistStore: WatchlistStore
-    private let workspaceStore: WorkspaceStore
+    public let workspaceStore: WorkspaceStore
     public let queue: InitializationQueue
     private let coordinator: WorkspaceInitializationCoordinator
 

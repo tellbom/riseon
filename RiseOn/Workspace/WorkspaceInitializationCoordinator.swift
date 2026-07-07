@@ -58,7 +58,7 @@ public actor WorkspaceInitializationCoordinator {
         workspaceStore: WorkspaceStore,
         dailyProvider: any DailyBarsProvider = TencentDailyProvider(),
         quoteProvider: any QuoteProvider = TencentQuoteProvider(),
-        isTradingDayToday: @escaping @Sendable () -> Bool = WorkspaceInitializationCoordinator.defaultIsTradingDayToday
+        isTradingDayToday: @escaping @Sendable () -> Bool = { WorkspaceInitializationCoordinator.defaultIsTradingDayToday() }
     ) {
         self.workspaceStore = workspaceStore
         self.dailyProvider = dailyProvider
@@ -106,7 +106,7 @@ public actor WorkspaceInitializationCoordinator {
 
     /// Returns a closure suitable for `InitializationQueue.init(executeStep:)`,
     /// bound to this coordinator instance.
-    public func stepExecutor() -> InitializationQueue.StepExecutor {
+    public nonisolated func stepExecutor() -> InitializationQueue.StepExecutor {
         { [weak self] code, step in
             guard let self else { return }
             try await self.performStep(code: code, step: step)

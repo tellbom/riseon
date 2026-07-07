@@ -23,7 +23,7 @@ public final class InitProgressViewModel: ObservableObject {
     @Published public private(set) var outcome: InitializationQueue.Outcome?
     @Published public private(set) var isRetrying: Bool = false
 
-    private let code: String
+    public let code: String
     private let queue: InitializationQueue
     private let pollIntervalNanoseconds: UInt64
 
@@ -62,7 +62,7 @@ public final class InitProgressViewModel: ObservableObject {
         isRetrying = true
         defer { isRetrying = false }
 
-        _ = try? await queue.retry(code)
+        _ = await queue.retry(code)
         await observe() // `queue.retry` clears the settled outcome, so this resumes polling
     }
 }

@@ -8,7 +8,7 @@ import SwiftUI
 ///   inline, with a swipe action to trigger the actual refresh (S12.1).
 ///
 /// **Composition note for whoever wires this into the app**: `queue` must
-/// already be constructed with `await coordinator.stepExecutor()` as its
+/// already be constructed with `coordinator.stepExecutor()` as its
 /// `executeStep` — this view doesn't do that wiring itself, so `coordinator`
 /// and `queue` need to agree on that at the call site (see this file's
 /// `#Preview` for a minimal example, which uses a dummy executor instead
@@ -52,7 +52,11 @@ struct HomeListView: View {
                 )
             ) {
                 if let code = viewModel.selectedCode {
-                    InitProgressView(code: code, queue: viewModel.queue)
+                    WorkspaceRouteView(
+                        code: code,
+                        queue: viewModel.queue,
+                        workspaceStore: viewModel.workspaceStore
+                    )
                 }
             }
         }
@@ -91,6 +95,31 @@ struct HomeListView: View {
         }
         .accessibilityLabel("首页股票列表")
         .refreshable { await viewModel.refreshWorkspaceStates() }
+    }
+}
+
+private struct WorkspaceRouteView: View {
+    let code: String
+    let queue: InitializationQueue
+    let workspaceStore: WorkspaceStore
+
+    @State private var state: WorkspaceState?
+
+    var body: some View {
+        Group {
+            switch state {
+            case .ready, .partial, .stale:
+                WorkspaceDetailView(code: code, workspaceStore: workspaceStore)
+            default:
+                InitProgressView(code: code, queue: queue, workspaceStore: workspaceStore)
+            }
+        }
+        .task { await loadState() }
+    }
+
+    private func loadState() async {
+        let workspace = try? await workspaceStore.load(code: code)
+        state = workspace?.state
     }
 }
 
@@ -181,7 +210,7 @@ private struct HomeStockRowView: View {
     )
     let coordinator = WorkspaceInitializationCoordinator(workspaceStore: workspaceStore)
     // Preview-only dummy executor -- a real composition root wires
-    // `await coordinator.stepExecutor()` in here instead.
+    // `coordinator.stepExecutor()` in here instead.
     let queue = InitializationQueue { _, _ in
         try await Task.sleep(nanoseconds: 300_000_000)
     }

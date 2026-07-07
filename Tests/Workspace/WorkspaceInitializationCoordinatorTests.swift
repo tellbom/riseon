@@ -74,7 +74,7 @@ final class WorkspaceInitializationCoordinatorTests: XCTestCase {
             quoteProvider: MockQuoteProvider(.succeed(makeQuote())),
             isTradingDayToday: { true }
         )
-        let queue = InitializationQueue(executeStep: await coordinator.stepExecutor())
+        let queue = InitializationQueue(executeStep: coordinator.stepExecutor())
 
         let started = try await coordinator.startInitialization(code: "600519", name: "贵州茅台", market: "sh", queue: queue)
         XCTAssertTrue(started)
@@ -103,7 +103,7 @@ final class WorkspaceInitializationCoordinatorTests: XCTestCase {
             quoteProvider: MockQuoteProvider(.succeed(makeQuote())),
             isTradingDayToday: { true }
         )
-        let queue = InitializationQueue(executeStep: await coordinator.stepExecutor())
+        let queue = InitializationQueue(executeStep: coordinator.stepExecutor())
 
         try await coordinator.startInitialization(code: "600519", name: "贵州茅台", market: "sh", queue: queue)
         await queue.waitUntilIdle()
@@ -130,7 +130,7 @@ final class WorkspaceInitializationCoordinatorTests: XCTestCase {
             quoteProvider: MockQuoteProvider(.fail),
             isTradingDayToday: { true }
         )
-        let queue = InitializationQueue(executeStep: await coordinator.stepExecutor())
+        let queue = InitializationQueue(executeStep: coordinator.stepExecutor())
 
         try await coordinator.startInitialization(code: "600519", name: "贵州茅台", market: "sh", queue: queue)
         await queue.waitUntilIdle()
@@ -151,7 +151,7 @@ final class WorkspaceInitializationCoordinatorTests: XCTestCase {
             quoteProvider: MockQuoteProvider(.fail),
             isTradingDayToday: { true }
         )
-        let queue = InitializationQueue(executeStep: await coordinator.stepExecutor())
+        let queue = InitializationQueue(executeStep: coordinator.stepExecutor())
 
         try await coordinator.startInitialization(code: "600519", name: "贵州茅台", market: "sh", queue: queue)
         await queue.waitUntilIdle()
@@ -172,7 +172,7 @@ final class WorkspaceInitializationCoordinatorTests: XCTestCase {
             quoteProvider: MockQuoteProvider(.succeed(makeQuote())),
             isTradingDayToday: { true }
         )
-        let queue = InitializationQueue(executeStep: await coordinator.stepExecutor())
+        let queue = InitializationQueue(executeStep: coordinator.stepExecutor())
 
         let first = try await coordinator.startInitialization(code: "600519", name: "贵州茅台", market: "sh", queue: queue)
         XCTAssertTrue(first)
@@ -197,7 +197,7 @@ final class WorkspaceInitializationCoordinatorTests: XCTestCase {
             quoteProvider: MockQuoteProvider(.succeed(makeQuote())),
             isTradingDayToday: { true }
         )
-        let queue = InitializationQueue(executeStep: await coordinator.stepExecutor())
+        let queue = InitializationQueue(executeStep: coordinator.stepExecutor())
 
         try await coordinator.startInitialization(code: "BADCODE", name: "无效代码", market: "sh", queue: queue)
         await queue.waitUntilIdle()
