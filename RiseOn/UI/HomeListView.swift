@@ -54,6 +54,7 @@ struct HomeListView: View {
                 if let code = viewModel.selectedCode {
                     WorkspaceRouteView(
                         code: code,
+                        knownState: viewModel.workspaceStates[code],
                         queue: viewModel.queue,
                         workspaceStore: viewModel.workspaceStore
                     )
@@ -104,6 +105,23 @@ private struct WorkspaceRouteView: View {
     let workspaceStore: WorkspaceStore
 
     @State private var state: WorkspaceState?
+
+    /// - Parameter knownState: whatever `HomeListViewModel` already knew
+    ///   about this stock's state (from the row it was just tapped from).
+    ///   Seeding `state` with it avoids a spurious flash of
+    ///   `InitProgressView` for a stock that's already `.ready`/`.partial`/
+    ///   `.stale` — without this, `state` starts `nil` and the `switch`
+    ///   below defaults to `InitProgressView` until `loadState()`'s async
+    ///   disk read resolves, even though the caller already knew better.
+    ///   Still re-verified via `loadState()` below (e.g. first-ever open,
+    ///   where `knownState` is genuinely `nil`, correctly falls through to
+    ///   `InitProgressView` since the stock really is initializing).
+    init(code: String, knownState: WorkspaceState?, queue: InitializationQueue, workspaceStore: WorkspaceStore) {
+        self.code = code
+        self.queue = queue
+        self.workspaceStore = workspaceStore
+        _state = State(initialValue: knownState)
+    }
 
     var body: some View {
         Group {

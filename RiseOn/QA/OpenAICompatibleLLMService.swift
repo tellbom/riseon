@@ -91,6 +91,92 @@ public actor OpenAICompatibleLLMService: LLMService {
         return try Self.extractContent(from: data)
     }
 
+    public nonisolated func streamGenerate(system: String, user: String) -> AsyncThrowingStream<String, Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    try await runStream(system: system, user: user, continuation: continuation)
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
+    private func runStream(
+        system: String,
+        user: String,
+        continuation: AsyncThrowingStream<String, Error>.Continuation
+    ) async throws {
+        let apiKey: String
+        do {
+            guard let storedKey = try LLMAPIKeyStore.load(), !storedKey.isEmpty else {
+                throw LLMServiceError.notConfigured
+            }
+            apiKey = storedKey
+        } catch let error as LLMServiceError {
+            throw error
+        } catch {
+            throw LLMServiceError.unknown("keychain access failed: \(error.localizedDescription)")
+        }
+
+        var request = URLRequest(url: configuration.endpoint)
+        request.httpMethod = "POST"
+        request.timeoutInterval = configuration.timeoutSeconds
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.httpBody = try JSONSerialization.data(withJSONObject: [
+            "model": configuration.model,
+            "messages": [
+                ["role": "system", "content": system],
+                ["role": "user", "content": user],
+            ],
+            "stream": true,
+        ])
+
+        let bytes: URLSession.AsyncBytes
+        let response: URLResponse
+        do {
+            (bytes, response) = try await session.bytes(for: request)
+        } catch let error as URLError where error.code == .timedOut {
+            throw LLMServiceError.timeout
+        } catch let error as URLError {
+            throw LLMServiceError.network(error.localizedDescription)
+        } catch {
+            throw LLMServiceError.network(error.localizedDescription)
+        }
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw LLMServiceError.unknown("response was not an HTTP response")
+        }
+
+        if httpResponse.statusCode < 200 || httpResponse.statusCode >= 300 {
+            var body = Data()
+            for try await byte in bytes {
+                body.append(byte)
+            }
+            throw Self.error(forStatusCode: httpResponse.statusCode, body: body) ?? .unknown("HTTP \(httpResponse.statusCode)")
+        }
+
+        var receivedAnyDelta = false
+        for try await line in bytes.lines {
+            switch Self.parseSSEDataLine(line) {
+            case .delta(let text):
+                receivedAnyDelta = true
+                continuation.yield(text)
+            case .done:
+                return
+            case nil:
+                continue
+            }
+        }
+        guard receivedAnyDelta else {
+            throw LLMServiceError.emptyOutput
+        }
+    }
+
     // MARK: - Pure helpers, exposed for fixture-based tests
     // (same reasoning as `TencentQuoteProvider.parse`/`TencentDailyProvider.parseBars`)
 
@@ -129,5 +215,33 @@ public actor OpenAICompatibleLLMService: LLMService {
             throw LLMServiceError.emptyOutput
         }
         return content
+    }
+
+    /// One decoded SSE `data:` event from a chat-completions stream.
+    enum SSEEvent: Equatable {
+        case delta(String)
+        case done
+    }
+
+    /// Parses a single line read from an SSE body. Returns `nil` for lines
+    /// that carry no content for us (blank keep-alive lines, malformed JSON,
+    /// chunks with no `delta.content`) — the caller just skips those rather
+    /// than treating them as fatal, since a stream is a sequence of frames
+    /// and one uninteresting frame shouldn't abort the rest.
+    nonisolated static func parseSSEDataLine(_ line: String) -> SSEEvent? {
+        guard line.hasPrefix("data:") else { return nil }
+        let payload = line.dropFirst("data:".count).trimmingCharacters(in: .whitespaces)
+        guard !payload.isEmpty else { return nil }
+        if payload == "[DONE]" {
+            return .done
+        }
+        guard let data = payload.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let choices = json["choices"] as? [[String: Any]], let first = choices.first,
+              let delta = first["delta"] as? [String: Any], let content = delta["content"] as? String,
+              !content.isEmpty else {
+            return nil
+        }
+        return .delta(content)
     }
 }

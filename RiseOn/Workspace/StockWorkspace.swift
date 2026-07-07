@@ -21,7 +21,8 @@ public struct StockWorkspace: Codable, Equatable, Sendable {
 
     public var contextPack: ContextPack?
     public var ruleScore: RuleScore?
-    public var chatSession: ChatSession
+    public var chatThreads: [ChatThread]
+    public var activeChatThreadID: UUID?
     public var meta: WorkspaceMeta
 
     public init(code: String, name: String, market: String) {
@@ -31,8 +32,21 @@ public struct StockWorkspace: Codable, Equatable, Sendable {
         self.state = .uninitialized
         self.contextPack = nil
         self.ruleScore = nil
-        self.chatSession = ChatSession(code: code, messages: [])
+        let firstThread = ChatThread(code: code)
+        self.chatThreads = [firstThread]
+        self.activeChatThreadID = firstThread.id
         self.meta = WorkspaceMeta(snapshotDate: nil, source: "", quality: nil)
+    }
+
+    /// The thread currently being read from/written to (`ChatThreadIsolation`'s
+    /// mutation points target this one). `nil` only if `activeChatThreadID`
+    /// doesn't match any thread in `chatThreads` — shouldn't happen through
+    /// the sanctioned mutation methods below, but this stays an optional
+    /// rather than force-unwrapping so a future bug surfaces as a clear
+    /// "nothing to show" UI state instead of a crash.
+    public var activeChatThread: ChatThread? {
+        guard let activeChatThreadID else { return nil }
+        return chatThreads.first { $0.id == activeChatThreadID }
     }
 
     /// Attempts to move to `next`. Throws `WorkspaceTransitionError.illegal` if the
@@ -106,4 +120,13 @@ public enum InitStep: String, Codable, Equatable, Hashable, Sendable, CaseIterab
 
 public enum WorkspaceTransitionError: Error, Equatable {
     case illegal(from: WorkspaceState, to: WorkspaceState)
+}
+
+extension WorkspaceTransitionError: LocalizedError {
+    public var errorDescription: String? {
+        switch self {
+        case .illegal(let from, let to):
+            return "无法从「\(from)」状态切换到「\(to)」状态。"
+        }
+    }
 }

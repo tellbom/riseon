@@ -269,3 +269,14 @@ public actor WorkspaceInitializationCoordinator {
         return formatter.string(from: date)
     }
 }
+
+extension WorkspaceInitializationCoordinator.CoordinatorError: LocalizedError {
+    public var errorDescription: String? {
+        switch self {
+        case .workspaceNotFound(let code):
+            return "找不到 \(code) 的 Workspace。"
+        case .missingStagingData(let code):
+            return "\(code) 缺少初始化中间数据，请重新刷新。"
+        }
+    }
+}

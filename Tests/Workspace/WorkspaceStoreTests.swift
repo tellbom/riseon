@@ -116,6 +116,30 @@ final class WorkspaceStoreTests: XCTestCase {
         XCTAssertEqual(Set(all.map(\.code)), Set(["600519", "000001"]))
     }
 
+    /// Reproduces the exact real-world failure: a file saved under an older
+    /// `StockWorkspace` schema (missing keys the current `Codable`
+    /// conformance requires, e.g. a pre-multi-thread-chat `chatSession`
+    /// layout instead of today's `chatThreads`/`activeChatThreadID`) must
+    /// not surface as "the data couldn't be read because it is missing" to
+    /// every stock -- `load` should treat it like no workspace was ever
+    /// saved, and clear the stale file so it doesn't keep failing.
+    func test_loadingAFileWithAnOutdatedSchema_returnsNilInsteadOfThrowing() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("WorkspaceStoreTests-\(UUID().uuidString)", isDirectory: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+
+        let staleFile = directory.appendingPathComponent("600519.json")
+        let outdatedSchema = #"{"code":"600519","name":"贵州茅台","market":"sh","state":"uninitialized","chatSession":{"code":"600519","messages":[]},"meta":{"source":""}}"#
+        try outdatedSchema.data(using: .utf8)!.write(to: staleFile)
+
+        let store = try WorkspaceStore(directory: directory)
+        let loaded = try await store.load(code: "600519")
+
+        XCTAssertNil(loaded)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: staleFile.path), "the stale file should be cleared so it doesn't keep failing to decode")
+    }
+
     /// A fresh `WorkspaceStore` instance pointed at the same directory stands
     /// in for "app restart" — nothing is held in memory between saving and
     /// re-opening, only the files on disk.

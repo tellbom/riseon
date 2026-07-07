@@ -336,3 +336,12 @@ public actor InitializationQueue {
         try? await store.save(tasksByCode)
     }
 }
+
+extension InitializationQueue.RefreshError: LocalizedError {
+    public var errorDescription: String? {
+        switch self {
+        case .alreadyActive:
+            return "这只股票正在刷新中，请稍后再试。"
+        }
+    }
+}

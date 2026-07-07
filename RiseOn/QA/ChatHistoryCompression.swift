@@ -1,6 +1,6 @@
 import Foundation
 
-/// Keeps a `ChatSession`'s history from growing past what the model's
+/// Keeps a `ChatThread`'s history from growing past what the model's
 /// context window can hold (task.md S11.2). MVP strategy: truncate to the
 /// most recent messages that fit a token budget. Real summary compression
 /// (`ChatHistorySummarizer` below) is reserved for later — this is what
@@ -58,7 +58,7 @@ public enum ChatSummarySection: String, CaseIterable, Equatable, Sendable {
 /// (task.md S11.2's "预留 5 段式摘要压缩接口"). Not implemented yet — MVP
 /// uses `ChatHistoryCompression.truncate` instead. Exists so there's a real,
 /// compilable shape to plug an actual implementation into later without
-/// having to redesign `ChatSession`'s call sites when that day comes.
+/// having to redesign `ChatThread`'s call sites when that day comes.
 public protocol ChatHistorySummarizer: Sendable {
     /// Compresses `messages` (optionally folding in a `previousSummary`
     /// from an earlier compression pass) into Markdown containing all 5

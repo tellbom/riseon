@@ -51,13 +51,27 @@ public actor WorkspaceStore {
     }
 
     /// Reads the workspace for `code`, or `nil` if none has been saved.
+    ///
+    /// A file that exists but fails to decode (e.g. it predates a
+    /// `StockWorkspace` schema change) is treated the same as "never
+    /// saved" rather than thrown: it's deleted and `nil` is returned, so
+    /// callers naturally fall back to their existing "no workspace yet"
+    /// path (`WorkspaceInitializationCoordinator.startInitialization`
+    /// rebuilds and overwrites it) instead of surfacing a raw decode error
+    /// for every stock whenever the on-disk shape moves on. Mirrors the
+    /// same per-file tolerance `loadAll()` already has.
     public func load(code: String) async throws -> StockWorkspace? {
         let url = fileURL(for: code)
         guard FileManager.default.fileExists(atPath: url.path) else {
             return nil
         }
         let data = try Data(contentsOf: url)
-        return try decoder.decode(StockWorkspace.self, from: data)
+        do {
+            return try decoder.decode(StockWorkspace.self, from: data)
+        } catch is DecodingError {
+            try? FileManager.default.removeItem(at: url)
+            return nil
+        }
     }
 
     /// Removes the file for `code`. Idempotent — does not throw if nothing

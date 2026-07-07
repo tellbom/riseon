@@ -172,6 +172,29 @@ final class HomeListViewModelTests: XCTestCase {
         XCTAssertNil(viewModel.errors["600519"])
     }
 
+    /// Reproduces the reported bug: a workspace left at `.initializing`
+    /// (e.g. a previous run that never finished/settled) must still be
+    /// refreshable -- `.initializing -> .initializing` isn't a legal
+    /// `StockWorkspace` transition, so refreshing used to throw
+    /// `WorkspaceTransitionError` and get permanently stuck (surfaced to the
+    /// user as an untranslated "the operation couldn't be completed").
+    func test_refreshWorkspace_onWorkspaceStuckInitializing_stillSucceeds() async throws {
+        let (watchlistStore, workspaceStore) = try makeStores()
+        var workspace = StockWorkspace(code: "600519", name: "贵州茅台", market: "sh")
+        try workspace.transition(to: .initializing)
+        try await workspaceStore.save(workspace)
+
+        let (viewModel, queue) = await makeViewModel(watchlistStore: watchlistStore, workspaceStore: workspaceStore)
+        await viewModel.refreshWorkspace(for: WatchlistItem(code: "600519", name: "贵州茅台"))
+
+        XCTAssertNil(viewModel.errors["600519"])
+        XCTAssertEqual(viewModel.selectedCode, "600519")
+        await queue.waitUntilIdle()
+
+        let reloaded = try await workspaceStore.load(code: "600519")
+        XCTAssertEqual(reloaded?.state, .ready)
+    }
+
     func test_refreshWorkspace_noExistingWorkspace_recordsErrorRatherThanCrashing() async throws {
         let (watchlistStore, workspaceStore) = try makeStores()
         let (viewModel, _) = await makeViewModel(watchlistStore: watchlistStore, workspaceStore: workspaceStore)

@@ -3,8 +3,10 @@ import Foundation
 /// Minimal generation protocol (task.md S10.1), aligned with the shape of
 /// `src/llm/generation_backend.py::GenerationBackend.generate` but reduced
 /// to what a single-turn Q&A prompt actually needs — this app has no
-/// streaming, no tool-calling, no JSON-schema validation, so those
-/// parameters are dropped rather than carried along unused.
+/// tool-calling, no JSON-schema validation, so those parameters are dropped
+/// rather than carried along unused. `streamGenerate` was added on top of
+/// the original one-shot `generate` once the chat UI needed token-level SSE
+/// streaming to match normal web LLM chat interactions.
 ///
 /// This is one of only two places network I/O is allowed (the other being
 /// `QuoteProvider`/`TencentDailyProvider`) — see plan.md §13's "纪律".
@@ -14,6 +16,12 @@ import Foundation
 /// mock, can stand in wherever `LLMService` is required.
 public protocol LLMService: Sendable {
     func generate(system: String, user: String) async throws -> String
+
+    /// Streams the answer as it's generated, yielding incremental text
+    /// chunks (not full-so-far snapshots — callers accumulate themselves).
+    /// The stream finishes normally once the underlying response completes,
+    /// or throws the same `LLMServiceError` cases `generate` would.
+    func streamGenerate(system: String, user: String) -> AsyncThrowingStream<String, Error>
 }
 
 /// Structured failure states (task.md S10.2), **inspired by** —not a literal

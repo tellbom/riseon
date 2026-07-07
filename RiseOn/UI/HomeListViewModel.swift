@@ -81,6 +81,17 @@ public final class HomeListViewModel: ObservableObject {
     /// (S12.2) or any other "refresh this stock" affordance: moves the
     /// workspace back to `.initializing` and re-drives the queue, then
     /// navigates to the progress screen so the person can watch it.
+    ///
+    /// A workspace can already be sitting at `.initializing` when this is
+    /// called — either a previous refresh is still genuinely running, or an
+    /// earlier run never made it to `.ready`/`.partial`/`.failed` (nothing in
+    /// the init pipeline writes a terminal state back to the workspace on
+    /// failure, so it's left at `.initializing` indefinitely). `.initializing
+    /// -> .initializing` isn't a legal transition, so re-running it
+    /// unconditionally used to throw `WorkspaceTransitionError` and get stuck
+    /// there forever (surfaced to the user as a raw, untranslated error) --
+    /// skip the no-op transition in that case and just re-drive the queue,
+    /// which is what actually needs to happen either way.
     public func refreshWorkspace(for item: WatchlistItem) async {
         errors[item.code] = nil
         do {
@@ -88,9 +99,16 @@ public final class HomeListViewModel: ObservableObject {
                 errors[item.code] = "还没有可刷新的 Workspace"
                 return
             }
-            try workspace.transition(to: .initializing)
-            try await workspaceStore.save(workspace)
-            _ = try await queue.refresh(item.code)
+            if workspace.state != .initializing {
+                try workspace.transition(to: .initializing)
+                try await workspaceStore.save(workspace)
+            }
+            do {
+                _ = try await queue.refresh(item.code)
+            } catch InitializationQueue.RefreshError.alreadyActive {
+                // A refresh is already running for this code -- nothing to
+                // do, let it finish on its own.
+            }
         } catch {
             errors[item.code] = "刷新失败：\(error.localizedDescription)"
             return

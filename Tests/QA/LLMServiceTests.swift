@@ -24,6 +24,18 @@ final class LLMServiceTests: XCTestCase {
             case .failure(let error): throw error
             }
         }
+
+        func streamGenerate(system: String, user: String) -> AsyncThrowingStream<String, Error> {
+            AsyncThrowingStream { continuation in
+                switch response {
+                case .success(let text):
+                    continuation.yield(text)
+                    continuation.finish()
+                case .failure(let error):
+                    continuation.finish(throwing: error)
+                }
+            }
+        }
     }
 
     func test_protocolAcceptsAMockConformer() async throws {
@@ -150,5 +162,30 @@ final class LLMServiceTests: XCTestCase {
         for error in errors {
             XCTAssertFalse((error.errorDescription ?? "").isEmpty, "\(error) needs a user-facing message")
         }
+    }
+
+    // MARK: - SSE line parsing (pure function)
+
+    func test_parseSSEDataLine_validDelta_returnsDelta() {
+        let line = #"data: {"choices":[{"delta":{"content":"你好"}}]}"#
+        XCTAssertEqual(OpenAICompatibleLLMService.parseSSEDataLine(line), .delta("你好"))
+    }
+
+    func test_parseSSEDataLine_doneMarker_returnsDone() {
+        XCTAssertEqual(OpenAICompatibleLLMService.parseSSEDataLine("data: [DONE]"), .done)
+    }
+
+    func test_parseSSEDataLine_malformedJSON_returnsNil() {
+        XCTAssertNil(OpenAICompatibleLLMService.parseSSEDataLine("data: not json"))
+    }
+
+    func test_parseSSEDataLine_missingDeltaContent_returnsNil() {
+        let line = #"data: {"choices":[{"delta":{}}]}"#
+        XCTAssertNil(OpenAICompatibleLLMService.parseSSEDataLine(line))
+    }
+
+    func test_parseSSEDataLine_nonDataLine_returnsNil() {
+        XCTAssertNil(OpenAICompatibleLLMService.parseSSEDataLine(": keep-alive"))
+        XCTAssertNil(OpenAICompatibleLLMService.parseSSEDataLine(""))
     }
 }

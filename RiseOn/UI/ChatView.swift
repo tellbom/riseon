@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct ChatView: View {
     let code: String
@@ -6,9 +7,18 @@ struct ChatView: View {
 
     @State private var workspace: StockWorkspace?
     @State private var question = ""
-    @State private var isSending = false
+    @State private var isStreaming = false
+    @State private var streamingText = ""
     @State private var errorMessage: String?
     @State private var showSettings = false
+    @State private var showHistory = false
+    @State private var sendTask: Task<Void, Never>?
+
+    private static let suggestedQuestions = [
+        "现在这只股票的技术面怎么看？",
+        "支撑和阻力在哪里？",
+        "最近的趋势是涨还是跌？",
+    ]
 
     var body: some View {
         VStack(spacing: 0) {
@@ -25,7 +35,26 @@ struct ChatView: View {
             }
         }
         .navigationTitle("个股问答")
+        .navigationBarTitleDisplayMode(.inline)
         .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    showHistory = true
+                } label: {
+                    Image(systemName: "clock.arrow.circlepath")
+                }
+                .accessibilityLabel("历史会话")
+                .disabled(workspace == nil)
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    startNewThread()
+                } label: {
+                    Image(systemName: "square.and.pencil")
+                }
+                .accessibilityLabel("新建会话")
+                .disabled(workspace == nil || isStreaming)
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
                     showSettings = true
@@ -40,6 +69,17 @@ struct ChatView: View {
                 LLMSettingsView()
             }
         }
+        .sheet(isPresented: $showHistory) {
+            if let workspace {
+                ChatThreadListView(
+                    workspace: Binding(
+                        get: { self.workspace ?? workspace },
+                        set: { self.workspace = $0 }
+                    ),
+                    workspaceStore: workspaceStore
+                )
+            }
+        }
         .task { await loadWorkspace() }
     }
 
@@ -49,9 +89,7 @@ struct ChatView: View {
                 Text(workspace.name.isEmpty ? workspace.code : workspace.name)
                     .font(.headline)
                 Spacer()
-                Text(workspace.meta.quality ?? "unknown")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                qualityBadge(workspace.meta.quality)
             }
             if let snapshotDate = workspace.meta.snapshotDate {
                 Text("数据快照：\(snapshotDate.formatted(date: .abbreviated, time: .shortened))")
@@ -60,53 +98,135 @@ struct ChatView: View {
             }
         }
         .padding()
+        .background(.ultraThinMaterial)
+    }
+
+    private func qualityBadge(_ quality: String?) -> some View {
+        let (label, color) = qualityStyle(quality)
+        return Text(label)
+            .font(.caption2.weight(.semibold))
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(color.opacity(0.15), in: Capsule())
+            .foregroundStyle(color)
+    }
+
+    private func qualityStyle(_ quality: String?) -> (String, Color) {
+        switch quality {
+        case "good": return ("数据良好", .green)
+        case "usable": return ("数据可用", .blue)
+        case "limited": return ("数据有限", .orange)
+        case "poor": return ("数据较差", .red)
+        default: return ("质量未知", .gray)
+        }
     }
 
     private func messagesList(_ workspace: StockWorkspace) -> some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: 10) {
-                if workspace.chatSession.messages.isEmpty {
-                    ContentUnavailableView(
-                        "还没有对话",
-                        systemImage: "message",
-                        description: Text("可以问：现在这只股票的技术面怎么看？支撑和阻力在哪里？")
-                    )
-                    .padding(.top, 32)
-                } else {
-                    ForEach(workspace.chatSession.messages.indices, id: \.self) { index in
-                        MessageBubble(message: workspace.chatSession.messages[index])
+        let messages = workspace.activeChatThread?.messages ?? []
+        return ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 12) {
+                    if messages.isEmpty && !isStreaming {
+                        emptyState
+                    } else {
+                        ForEach(messages.indices, id: \.self) { index in
+                            MessageBubble(message: messages[index])
+                                .id(index)
+                        }
+                        if isStreaming {
+                            MessageBubble(message: ChatMessage(role: .assistant, content: streamingText))
+                                .id("streaming")
+                            if streamingText.isEmpty {
+                                streamingIndicator
+                            }
+                        }
+                    }
+                    if let errorMessage {
+                        Text(errorMessage)
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }
-                if let errorMessage {
-                    Text(errorMessage)
-                        .font(.caption)
-                        .foregroundStyle(.red)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                .padding()
+            }
+            .onChange(of: streamingText) {
+                withAnimation(.easeOut(duration: 0.15)) {
+                    if isStreaming {
+                        proxy.scrollTo("streaming", anchor: .bottom)
+                    } else if let lastIndex = messages.indices.last {
+                        proxy.scrollTo(lastIndex, anchor: .bottom)
+                    }
                 }
             }
-            .padding()
+            .onChange(of: messages.count) {
+                withAnimation(.easeOut(duration: 0.15)) {
+                    if let lastIndex = messages.indices.last {
+                        proxy.scrollTo(lastIndex, anchor: .bottom)
+                    }
+                }
+            }
         }
+    }
+
+    private var streamingIndicator: some View {
+        HStack {
+            ProgressView().controlSize(.small)
+            Spacer()
+        }
+        .padding(.horizontal, 4)
+    }
+
+    private var emptyState: some View {
+        VStack(spacing: 16) {
+            ContentUnavailableView(
+                "还没有对话",
+                systemImage: "message",
+                description: Text("试试下面这些问题，或者直接输入你自己的问题")
+            )
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(Self.suggestedQuestions, id: \.self) { suggestion in
+                    Button {
+                        question = suggestion
+                    } label: {
+                        Text(suggestion)
+                            .font(.subheadline)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(Color(.secondarySystemBackground), in: Capsule())
+                            .foregroundStyle(.primary)
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.top, 16)
     }
 
     private var composer: some View {
         HStack(alignment: .bottom, spacing: 8) {
             TextField("输入你的问题", text: $question, axis: .vertical)
-                .textFieldStyle(.roundedBorder)
                 .lineLimit(1...4)
-                .disabled(isSending)
+                .disabled(isStreaming)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .background(Color(.secondarySystemBackground), in: Capsule())
 
             Button {
-                Task { await sendQuestion() }
-            } label: {
-                if isSending {
-                    ProgressView()
+                if isStreaming {
+                    stopStreaming()
                 } else {
-                    Image(systemName: "paperplane.fill")
+                    sendQuestion()
                 }
+            } label: {
+                Image(systemName: isStreaming ? "stop.fill" : "arrow.up")
+                    .font(.body.weight(.semibold))
+                    .frame(width: 32, height: 32)
             }
             .buttonStyle(.borderedProminent)
-            .disabled(isSending || question.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            .accessibilityLabel("发送问题")
+            .clipShape(Circle())
+            .disabled(!isStreaming && question.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            .accessibilityLabel(isStreaming ? "停止生成" : "发送问题")
         }
         .padding()
         .background(.bar)
@@ -121,31 +241,57 @@ struct ChatView: View {
         }
     }
 
-    private func sendQuestion() async {
-        let trimmed = question.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, var current = workspace else { return }
+    private func startNewThread() {
+        guard var current = workspace else { return }
+        current.startNewChatThread()
+        workspace = current
+        Task { try? await workspaceStore.save(current) }
+    }
 
-        isSending = true
-        errorMessage = nil
+    private func sendQuestion() {
+        let trimmed = question.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, workspace != nil else { return }
         question = ""
+        sendTask = Task { await runStream(question: trimmed) }
+    }
+
+    private func stopStreaming() {
+        sendTask?.cancel()
+    }
+
+    private func runStream(question: String) async {
+        guard var current = workspace else { return }
+        isStreaming = true
+        errorMessage = nil
+        streamingText = ""
 
         do {
             let service = try LLMConfigurationStore.makeService()
-            _ = try await WorkspaceChatService.ask(trimmed, in: &current, llmService: service)
-            try await workspaceStore.save(current)
+            let stream = try WorkspaceChatService.streamAsk(question, in: &current, llmService: service)
             workspace = current
+            try await workspaceStore.save(current)
+
+            for try await delta in stream {
+                if Task.isCancelled { break }
+                streamingText += delta
+            }
+
+            if !streamingText.isEmpty {
+                try WorkspaceChatService.finalizeStreamedAnswer(streamingText, in: &current)
+                workspace = current
+                try await workspaceStore.save(current)
+            }
         } catch {
             if let serviceError = error as? LLMServiceError {
                 errorMessage = serviceError.localizedDescription
             } else {
                 errorMessage = error.localizedDescription
             }
-            if current.chatSession.messages.last?.role == .user {
-                try? await workspaceStore.save(current)
-                workspace = current
-            }
         }
-        isSending = false
+
+        streamingText = ""
+        isStreaming = false
+        sendTask = nil
     }
 }
 
@@ -155,22 +301,47 @@ private struct MessageBubble: View {
     var body: some View {
         HStack {
             if message.role == .assistant {
-                bubble.foregroundStyle(.primary)
+                bubble
                 Spacer(minLength: 32)
             } else {
                 Spacer(minLength: 32)
-                bubble.foregroundStyle(.white)
+                bubble
             }
         }
     }
 
     private var bubble: some View {
-        Text(message.content)
-            .font(.body)
-            .padding(10)
-            .background(message.role == .assistant ? Color(.secondarySystemBackground) : Color.accentColor)
-            .clipShape(RoundedRectangle(cornerRadius: 8))
-            .textSelection(.enabled)
+        VStack(alignment: message.role == .assistant ? .leading : .trailing, spacing: 4) {
+            MarkdownText(content: message.content)
+                .font(.body)
+                .foregroundStyle(message.role == .assistant ? Color.primary : Color.white)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .background(
+                    message.role == .assistant ? Color(.secondarySystemBackground) : Color.accentColor
+                )
+                .clipShape(bubbleShape)
+                .textSelection(.enabled)
+                .contextMenu {
+                    Button {
+                        UIPasteboard.general.string = message.content
+                    } label: {
+                        Label("复制", systemImage: "doc.on.doc")
+                    }
+                }
+            Text(message.createdAt.formatted(date: .omitted, time: .shortened))
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var bubbleShape: some Shape {
+        UnevenRoundedRectangle(
+            topLeadingRadius: 16,
+            bottomLeadingRadius: message.role == .assistant ? 4 : 16,
+            bottomTrailingRadius: message.role == .assistant ? 16 : 4,
+            topTrailingRadius: 16
+        )
     }
 }
 

@@ -21,7 +21,7 @@ public enum PromptBuilder {
     ///     human-readable reasoning strings (`signalReasons`/`riskFactors`),
     ///     which are worth surfacing verbatim rather than re-deriving from
     ///     the numeric fields already in the pack.
-    ///   - history: prior turns in this stock's isolated `ChatSession`
+    ///   - history: prior turns in this stock's isolated `ChatThread`
     ///     (S11 owns truncation/summarization; this just renders whatever
     ///     it's handed).
     ///   - question: the user's current question.

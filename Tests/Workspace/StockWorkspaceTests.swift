@@ -99,8 +99,74 @@ final class StockWorkspaceTests: XCTestCase {
         XCTAssertEqual(workspace.state, .uninitialized)
         XCTAssertNil(workspace.contextPack)
         XCTAssertNil(workspace.ruleScore)
-        XCTAssertEqual(workspace.chatSession.code, "300059")
-        XCTAssertEqual(workspace.chatSession.messages, [])
+        XCTAssertEqual(workspace.activeChatThread?.code, "300059")
+        XCTAssertEqual(workspace.activeChatThread?.messages, [])
+        XCTAssertEqual(workspace.chatThreads.count, 1)
+        XCTAssertEqual(workspace.activeChatThreadID, workspace.chatThreads.first?.id)
+    }
+
+    func test_startNewChatThread_appendsAndBecomesActive() {
+        var workspace = StockWorkspace(code: "300059", name: "东方财富", market: "sz")
+        let firstThreadID = workspace.activeChatThreadID
+
+        let newThread = workspace.startNewChatThread()
+
+        XCTAssertEqual(workspace.chatThreads.count, 2)
+        XCTAssertEqual(workspace.activeChatThreadID, newThread.id)
+        XCTAssertNotEqual(newThread.id, firstThreadID)
+        XCTAssertEqual(newThread.code, "300059")
+    }
+
+    func test_selectChatThread_switchesActive() throws {
+        var workspace = StockWorkspace(code: "300059", name: "东方财富", market: "sz")
+        let firstThreadID = try XCTUnwrap(workspace.activeChatThreadID)
+        let secondThread = workspace.startNewChatThread()
+        XCTAssertEqual(workspace.activeChatThreadID, secondThread.id)
+
+        try workspace.selectChatThread(id: firstThreadID)
+
+        XCTAssertEqual(workspace.activeChatThreadID, firstThreadID)
+    }
+
+    func test_selectChatThread_throwsForUnknownID() {
+        var workspace = StockWorkspace(code: "300059", name: "东方财富", market: "sz")
+        XCTAssertThrowsError(try workspace.selectChatThread(id: UUID())) { error in
+            guard case StockWorkspace.ChatThreadError.threadNotFound = error else {
+                return XCTFail("expected .threadNotFound, got \(error)")
+            }
+        }
+    }
+
+    func test_deleteChatThread_removesNonActiveThread() throws {
+        var workspace = StockWorkspace(code: "300059", name: "东方财富", market: "sz")
+        let firstThreadID = try XCTUnwrap(workspace.activeChatThreadID)
+        let secondThread = workspace.startNewChatThread()
+
+        try workspace.deleteChatThread(id: firstThreadID)
+
+        XCTAssertEqual(workspace.chatThreads.count, 1)
+        XCTAssertEqual(workspace.activeChatThreadID, secondThread.id)
+    }
+
+    func test_deleteChatThread_lastThread_autoCreatesReplacement() throws {
+        var workspace = StockWorkspace(code: "300059", name: "东方财富", market: "sz")
+        let onlyThreadID = try XCTUnwrap(workspace.activeChatThreadID)
+
+        try workspace.deleteChatThread(id: onlyThreadID)
+
+        XCTAssertEqual(workspace.chatThreads.count, 1)
+        XCTAssertNotEqual(workspace.activeChatThreadID, onlyThreadID)
+        XCTAssertNotNil(workspace.activeChatThread)
+        XCTAssertEqual(workspace.activeChatThread?.code, "300059")
+    }
+
+    func test_deleteChatThread_throwsForUnknownID() {
+        var workspace = StockWorkspace(code: "300059", name: "东方财富", market: "sz")
+        XCTAssertThrowsError(try workspace.deleteChatThread(id: UUID())) { error in
+            guard case StockWorkspace.ChatThreadError.threadNotFound = error else {
+                return XCTFail("expected .threadNotFound, got \(error)")
+            }
+        }
     }
 
     /// Drives a fresh (`.uninitialized`) workspace to `target` via legal hops only,

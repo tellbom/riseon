@@ -3,7 +3,7 @@ import XCTest
 
 /// Covers task.md S2.2's verification point: "Codable 往返序列化单测通过"
 /// (Codable round-trip tests pass) for `ContextPack`, `RuleScore`,
-/// `ChatSession`, `WorkspaceMeta`, and the `StockWorkspace` that holds them.
+/// `ChatThread`, `WorkspaceMeta`, and the `StockWorkspace` that holds them.
 final class HoldingsCodableTests: XCTestCase {
 
     private let encoder: JSONEncoder = {
@@ -54,8 +54,8 @@ final class HoldingsCodableTests: XCTestCase {
         XCTAssertEqual(decoded, original)
     }
 
-    func test_chatSession_roundTrips_withMessages() throws {
-        let original = ChatSession(
+    func test_chatThread_roundTrips_withMessages() throws {
+        let original = ChatThread(
             code: "000001",
             messages: [
                 ChatMessage(role: .user, content: "现在能买吗？", createdAt: Date(timeIntervalSince1970: 1_750_000_000)),
@@ -66,8 +66,8 @@ final class HoldingsCodableTests: XCTestCase {
         XCTAssertEqual(decoded, original)
     }
 
-    func test_chatSession_roundTrips_empty() throws {
-        let original = ChatSession(code: "000001", messages: [])
+    func test_chatThread_roundTrips_empty() throws {
+        let original = ChatThread(code: "000001", messages: [])
         let decoded = try roundTrip(original)
         XCTAssertEqual(decoded, original)
     }
@@ -84,7 +84,7 @@ final class HoldingsCodableTests: XCTestCase {
             subject: ContextPackSubject(code: "600519", stockName: "贵州茅台", market: "sh")
         )
         workspace.ruleScore = RuleScore(code: "600519", signalScore: 61)
-        workspace.chatSession.messages.append(
+        try workspace.appendChatMessage(
             ChatMessage(role: .user, content: "帮我看看走势", createdAt: Date(timeIntervalSince1970: 1_750_000_000))
         )
         workspace.meta = WorkspaceMeta(snapshotDate: Date(timeIntervalSince1970: 1_750_000_000), source: "tencent", quality: "usable")

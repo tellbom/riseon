@@ -1,7 +1,7 @@
 import Foundation
 
 /// The actual "ask this stock a question" flow (task.md S16.5) —
-/// `PromptBuilder` (S9), `LLMService` (S10), and `ChatSession` isolation
+/// `PromptBuilder` (S9), `LLMService` (S10), and `ChatThread` isolation
 /// (S11) all exist as separate pieces already; this is what calls them
 /// together in the right order and records both sides of the exchange.
 public enum WorkspaceChatService {
@@ -15,7 +15,7 @@ public enum WorkspaceChatService {
 
     /// Sends `question` through this workspace's own `ContextPack`/history,
     /// gets an answer from `llmService`, and appends **both** the question
-    /// and the answer to `workspace.chatSession` (via
+    /// and the answer to the workspace's active `ChatThread` (via
     /// `StockWorkspace.appendChatMessage`, so S11.1's isolation check still
     /// applies here too — this doesn't bypass it).
     ///
@@ -37,7 +37,7 @@ public enum WorkspaceChatService {
         let prompt = PromptBuilder.build(
             pack: pack,
             ruleScore: workspace.ruleScore,
-            history: workspace.chatSession.messages,
+            history: workspace.activeChatThread?.messages ?? [],
             question: question
         )
 
@@ -47,5 +47,42 @@ public enum WorkspaceChatService {
 
         try workspace.appendChatMessage(ChatMessage(role: .assistant, content: answer))
         return answer
+    }
+
+    /// Streaming counterpart to `ask`: records the user's question
+    /// immediately (same "don't lose the question" guarantee as `ask`),
+    /// then returns the raw token stream from `llmService.streamGenerate`
+    /// unmodified — accumulating the delta text into a displayable/storable
+    /// answer is the caller's job (the chat UI needs the partial text to
+    /// render as it arrives, so accumulation can't happen down here).
+    ///
+    /// Call `finalizeStreamedAnswer` once the stream completes successfully
+    /// to record the assistant's side of the exchange; if the stream throws,
+    /// don't call it, mirroring `ask`'s "no assistant message on failure".
+    public static func streamAsk(
+        _ question: String,
+        in workspace: inout StockWorkspace,
+        llmService: any LLMService
+    ) throws -> AsyncThrowingStream<String, Error> {
+        guard let pack = workspace.contextPack else {
+            throw ChatServiceError.workspaceNotReady
+        }
+
+        let prompt = PromptBuilder.build(
+            pack: pack,
+            ruleScore: workspace.ruleScore,
+            history: workspace.activeChatThread?.messages ?? [],
+            question: question
+        )
+
+        try workspace.appendChatMessage(ChatMessage(role: .user, content: question))
+
+        return llmService.streamGenerate(system: prompt.system, user: prompt.user)
+    }
+
+    /// Records the assistant's fully-accumulated answer after a
+    /// `streamAsk` stream finished without error.
+    public static func finalizeStreamedAnswer(_ content: String, in workspace: inout StockWorkspace) throws {
+        try workspace.appendChatMessage(ChatMessage(role: .assistant, content: content))
     }
 }
