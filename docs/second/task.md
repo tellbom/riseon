@@ -234,7 +234,7 @@
 - [x] **12.1 单股刷新**：重跑 Step A–F，更新快照时间与 Pack。
   → 验证：刷新后数值与快照时间更新。**交付：`InitializationQueue.refresh(code)`（强制重跑全部5步，跟只重跑失败那一步的 `retry(_:)` 区分开）+ `StockWorkspace.applyRefreshedPack(...)`（套用新 Pack/评分/快照时间，按 `data_quality.level` 决定落到 `ready` 还是 `partial`）。**
 - [x] **12.2 过期评估**：快照日期 < 最近交易日或超阈值→置 `stale` 并提示。
-  → 验证：伪造旧快照→UI 出现"数据过期，建议刷新"。**交付：`StalenessEvaluator`（纯函数）+ `StockWorkspace.evaluateStaleness(...)`（`ready`/`partial`→`stale`）。"UI 出现提示"这半句是 S13+ 的事，这轮只做了 UI 应该依据的那个判断逻辑和状态迁移。**
+  → 验证：伪造旧快照→UI 出现"数据过期，建议刷新"。**交付：`StalenessEvaluator`（纯函数）+ `StockWorkspace.evaluateStaleness(...)`（`ready`/`partial`→`stale`）。S12 当轮只做判断逻辑和状态迁移；S16 已由 `HomeListViewModel.refreshWorkspaceStates()` 接入 Home 行内提示与刷新入口。**
 
 > 范围说明：
 > - `InitializationQueue.refresh(code)` 在 code 正处于 active（正在跑）时会抛 `RefreshError.alreadyActive`
@@ -301,27 +301,37 @@
 
 ---
 
-## S16 — MVP 验收标准 `[~]` 进行中（见 `S16_MVP验收评估.md` 逐条评估，2 处明确缺口未关闭）
+## S16 — MVP 验收标准 `[x]` 已完成（灵动岛置信度偏低+两条验证点需真机，见范围说明）
 
-- [x] **16.1** 从自选股一键建 Workspace，分步初始化并进度可视化，单步可重试。**核心逻辑已满足**（新增 `WorkspaceInitializationCoordinator.startInitialization`），**但 `HomeListView` 里"建 Workspace"的按钮/手势和到 `InitProgressView` 的导航还没做**——这是唯一一处纯 UI 交互层缺口，不属于任何已完成 S 编号。
+- [x] **16.1** 从自选股一键建 Workspace，分步初始化并进度可视化，单步可重试。已满足，含 UI 入口——`HomeListView` 现在点一下自选股会调用 `HomeListViewModel.openWorkspace(for:)`，没建过就新建，建过就直接导航到 `InitProgressView`。
 - [x] **16.2** 端上算出指标与规则评分（0-100）与支撑/阻力位，且与 Python 对拍一致（买卖点由 LLM 生成，见 §0.5-1）。已满足，S6/S7 交付时已逐字段对拍。
 - [x] **16.3** 生成 ContextPack：技术面 available、`levels` available、其余 `not_supported`，含数据质量分。已满足，S16 新增的端到端测试用真实 `WorkspaceInitializationCoordinator` 验证过，不只是 S8 单元测试层面成立。
 - [x] **16.4** 每股独立问答，Prompt 如实声明数据边界，历史严格隔离。已满足，`WorkspaceChatService`（S16 新增）把 S9/S10/S11 串成真正能调用的入口。
 - [x] **16.5** LLM 直连云端（自带 Key，Keychain），成功完成一次真机问答，且能结合 `levels` 产出 sniper_points。**代码链路已打通并用 mock 验证**，但"真机一次成功问答"本身需要真实 API Key，这个环境做不到——这条验证点性质上就是留给真机的，不算遗漏。
-- [x] **16.6** 手动刷新 + 过期告警可用；串行/受限并发队列可恢复。**刷新/恢复逻辑已满足**，**过期告警的 UI 提示文案还没做**（判断逻辑和状态迁移都有了，只是"在哪个界面用什么措辞显示"没设计）。
+- [x] **16.6** 手动刷新 + 过期告警可用；串行/受限并发队列可恢复。已满足，含 UI 提示文案——`HomeListViewModel.refreshWorkspaceStates()` 在 Home 页出现时对每只已建 Workspace 的自选股跑 `evaluateStaleness`，过期就落盘并在行内显示"数据过期，建议刷新"，附滑动刷新入口。
 - [x] **16.7** 通知/灵动岛显示进度，且未被用作后台计算容器。本地通知已满足；**灵动岛代码存在但从未编译验证过，且需要在 Xcode 里新建 Widget Extension target**，风险明显高于其余交付，S14 交付时已强调过。
 
-> 本轮新增了三块之前所有阶段都在往后推的"胶水层"代码，因为没有它们 16.1/16.4/16.5 根本没有
-> 入口可以触发：
+> 本轮（含两次追加）一共补了两类之前都在往后推的东西：
+>
+> **第一次**——三块跨阶段的"胶水层"代码，因为没有它们 16.1/16.4/16.5 根本没有入口可以触发：
 > - `WorkspaceInitializationCoordinator`（把 S5-S8 的纯函数接成 `InitializationQueue` 的
->   `StepExecutor`，含"一键建 Workspace"入口）
+>   `StepExecutor`，含"一键建 Workspace"入口 `startInitialization`）
 > - `WorkspaceChatService`（把 `PromptBuilder`+`LLMService`+`ChatSession` 接成真正的"问一个问题"）
 > - `DailyBarsProvider` 协议（给 `TencentDailyProvider` 补的协议抽象，跟现有 `QuoteProvider` 一个
 >   模式，专门是为了让上面这个编排层能用 mock 做端到端测试，不用真的连网）
 >
-> 详细的逐条评估、每条的具体依据、5 点明确缺口清单，见 `S16_MVP验收评估.md`。前两点缺口
-> （Home 页建 Workspace 入口、过期告警 UI 文案）是可以现在补的纯 UI 工作；灵动岛需要你在
-> Xcode 里配置；"真机验证"类的几条本来就不可能在这个环境里自动化完成。
+> **第二次**——两处当时发现的纯 UI 缺口：
+> - `HomeListView`/`HomeListViewModel`：点击自选股建/开 Workspace 的入口 + 导航到
+>   `InitProgressView`，行内状态徽标（未建/初始化中/就绪/部分就绪/已过期/失败）
+> - 同一个 ViewModel 里顺带把"过期告警"UI 文案也做了——两者共用"为每只自选股加载 Workspace
+>   状态"这段逻辑，分开做反而要写两遍
+>
+> 仍然没关闭的：灵动岛需要你在 Xcode 里新建 Widget Extension target（工程配置，非代码问题）；
+> "真机一次成功问答"/"真机观测通知"这类验证点本来就不可能在这个环境里自动化完成；交易日历
+> 目前是"周一到周五"的粗略近似，法定节假日会判断错误（这个服务本身从未被列为独立任务）。
+> 详细逐条依据见 `S16_MVP验收评估.md`。
+
+---
 
 ---
 

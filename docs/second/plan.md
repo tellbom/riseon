@@ -297,7 +297,8 @@ Step F 就绪      → 标记 ready，写入快照时间
 - **过期评估（S12.2 已落地）**：若快照日期 < 最近交易日，或距今超过阈值（如收盘后自然日 > N，
   端上默认 N=3），标记 `stale`，UI 提示"数据过期，建议刷新"。`StalenessEvaluator` 是纯函数，不自带
   交易日历知识（跟 `RealtimeOverlay` 的 `isTradingDay` 参数一个道理）——"最近交易日"由调用方传入，
-  交易日历本身还没实现，不在这轮范围内。UI 提示这半句验证点留给 S13+。
+  交易日历本身还没实现，不在这轮范围内。Home 页已由 `HomeListViewModel.refreshWorkspaceStates()`
+  驱动这段判断，过期时行内显示"数据过期，建议刷新"并提供刷新入口。
 - **手动刷新（S12.1 已落地）**：单股刷新 = 重跑 Step A–F；不做后台自动轮询（省电、避免免费端点被限流，延续现有 Watch MVP 原则）。
   实现上分两块：`InitializationQueue.refresh(code)` 强制重跑全部 5 步（不管之前是成功还是失败，
   跟只重跑失败那一步的 `retry(_:)` 不一样），以及 `StockWorkspace.applyRefreshedPack(...)` 把重跑
@@ -377,7 +378,9 @@ RiseOn (现有 iPhone 工程) 内新增：
 │   └── WorkspaceChatService (S16 新增：把 PromptBuilder+LLMService+ChatSession 接成真正的
 │         "问一个问题" ask(_:in:llmService:) 入口)
 └── UI/
-    ├── HomeListView, WorkspaceDetailView, ChatView, InitProgressView(+ViewModel)
+    ├── HomeListView(+HomeListViewModel：S16 补的"一键建Workspace"入口 + 过期告警UI，
+    │     两者共用"为每只自选股加载Workspace状态"逻辑一起做), WorkspaceDetailView(仍是占位，
+    │     未扩展到本轮范围), ChatView(仍是占位), InitProgressView(+ViewModel)
     └── WorkspaceNotificationCenter (本地通知) / WorkspaceInitActivityAttributes+Controller+Widget
         (灵动岛，S14 交付，风险偏高，见 §12)
 ```
