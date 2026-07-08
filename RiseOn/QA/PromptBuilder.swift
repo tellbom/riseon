@@ -12,6 +12,21 @@ public enum PromptBuilder {
         public var user: String
     }
 
+    /// Knobs that change how the prompt is phrased without changing the data.
+    public struct Options: Equatable, Sendable {
+        /// When the configured model can search the web (a search-augmented
+        /// model, or the `web_search` tool round), the system prompt switches
+        /// the news/公告/舆情 dimensions from "本地不支持，不得编造" to "本地
+        /// 没有，但你可以联网检索最新信息并注明来源与时间". Off by default so
+        /// the strict offline behavior (and every existing call site) is
+        /// unchanged.
+        public var webSearchEnabled: Bool
+
+        public init(webSearchEnabled: Bool = false) {
+            self.webSearchEnabled = webSearchEnabled
+        }
+    }
+
     /// - Parameters:
     ///   - pack: this stock's `ContextPack` (S8) — its `blocks` are rendered
     ///     with each one's real status, so `not_supported` blocks show up
@@ -25,34 +40,57 @@ public enum PromptBuilder {
     ///     (S11 owns truncation/summarization; this just renders whatever
     ///     it's handed).
     ///   - question: the user's current question.
+    ///   - options: phrasing knobs (see `Options`).
     public static func build(
         pack: ContextPack,
         ruleScore: RuleScore?,
         history: [ChatMessage],
-        question: String
+        question: String,
+        options: Options = Options()
     ) -> Result {
-        Result(system: systemPrompt, user: buildUserPrompt(pack: pack, ruleScore: ruleScore, history: history, question: question))
+        Result(
+            system: systemPrompt(options: options),
+            user: buildUserPrompt(pack: pack, ruleScore: ruleScore, history: history, question: question)
+        )
     }
 
-    // MARK: - System prompt (S9.2)
+    // MARK: - System prompt (S9.2 + short-term analyst framework)
 
-    /// Mirrors the spirit of `chat_context.py::SUMMARY_SYSTEM_PROMPT`'s
-    /// "只总结已有内容，不新增行情/新闻/建议" discipline, applied to Q&A
-    /// rather than summarization, plus S9.1's sniper-points instruction
-    /// (plan.md §0.5-1: this app never computes `ideal_buy`/`secondary_buy`/
-    /// `take_profit` itself — that's the LLM's job, guided by the `levels`
-    /// block).
-    public static let systemPrompt = """
-    你是一个本地个股问答助手，只能基于本轮消息里提供的数据回答问题，服务对象是这只股票的持有者/潜在买家。
+    /// Upgraded from the MVP's bare "只基于数据、别编造、给买卖点" into an
+    /// explicit **短线分析框架**: a persona, a three-dimension synthesis
+    /// method (资金面/情绪面/技术面), recency priority, conflict handling, and
+    /// a hard line between rule data and the model's own inference — so the
+    /// newly-injected factor data (资金流/龙虎榜/情绪…) is actually reasoned
+    /// over, not just echoed.
+    public static func systemPrompt(options: Options) -> String {
+        var lines = [
+            "你是一名专注 A 股短线（1–10 个交易日）的量化分析助手，服务对象是这只股票的持有者/潜在买家。你会拿到本地算好的行情、技术指标、规则评分、资金面、龙虎榜、涨跌停、板块热度、情绪面等结构化数据。",
+            "",
+            "分析框架（务必按此组织回答，而不是罗列数据）：",
+            "1. 资金面优先：主力净流入方向与连续性、超大单/大单结构、龙虎榜净买卖、板块资金热度——这是短线最重要的驱动。",
+            "2. 情绪面校验：涨跌停与连板、换手率、量比、情绪热度档位，判断资金是否有持续性、是否过热。",
+            "3. 技术面定位：结合趋势、均线多空、MACD/RSI、支撑/阻力位，给出当前所处位置与关键价位。",
+            "4. 三维交叉：优先采信最近 1–3 日的信号；当资金面、情绪面、技术面互相矛盾时，明确指出分歧并说明你更看重哪一维及理由，不要和稀泥。",
+            "",
+            "硬性规则：",
+            "- 只使用本轮提供的数据作答，区分“规则引擎给出的客观数据”与“你自己的推断”，推断要说明依据，不得把猜测当作数据陈述。",
+            "- 数据块被标注为“本地不支持”的（如筹码分布），本地拿不到；不得编造、不得用其它数据臆测替代。",
+            "- 数据块状态是“拉取失败/已过期/部分可用”等非“可用”状态时，要如实告知该维度当前有局限、可能不完整或不是最新的，不能当作完整可靠的数据使用。",
+            "- 必须向用户声明数据快照时间与数据质量等级；若整体质量是 limited 或 poor，或存在 warnings，要明确提示数据可能过期或不完整，让用户自行判断是否刷新。",
+            "- 结合 `levels` 块的支撑/阻力位与技术指标，给出结构化买卖点：ideal_buy（理想买入价）、secondary_buy（次选买入价）、stop_loss（止损价）、take_profit（止盈价），并说明依据；若你没有更合适的止损判断，可直接采用 `levels` 块第一个支撑位作为保守止损参考。",
+            "- 所有回答仅供参考、不构成投资建议，不承诺收益，不规避亏损风险。",
+        ]
 
-    硬性规则：
-    - 只使用本轮提供的数据作答，不得编造、猜测数据之外的行情、新闻、财务数据或市场消息。
-    - 如果某个数据块被标注为"本地不支持"（如新闻、筹码等），必须如实告知用户这类信息本地拿不到，不能假装拥有、也不能用其他数据臆测替代。
-    - 如果某个数据块状态是"拉取失败""已过期""部分可用"等非"可用"状态（不只是"本地不支持"），同样要如实告知用户这部分数据当前有局限、可能不完整或不是最新的，不能当作完整可靠的数据使用。
-    - 必须向用户声明数据快照时间与数据质量等级；如果整体质量是 limited 或 poor，或者存在 warnings，需要明确提示用户数据可能过期或不完整，让用户自行判断是否需要刷新。
-    - 结合 `levels` 块给出的支撑位/阻力位与技术指标数据，给出结构化的买卖点建议：ideal_buy（理想买入价）、secondary_buy（次选买入价）、stop_loss（止损价）、take_profit（止盈价），并说明依据。若你自己没有更合适的止损位判断，可以直接参考 `levels` 块里的第一个支撑位作为保守止损参考。
-    - 所有回答仅供参考、不构成投资建议，不承诺收益，不规避亏损风险。
-    """
+        if options.webSearchEnabled {
+            lines.append("")
+            lines.append("联网补充（你具备联网检索能力）：本地不支持新闻/公告/舆情等维度，但你可以主动检索该股票的最新新闻、公告与市场舆情来补充判断；引用检索到的信息时必须注明来源与时间，明确区分“检索所得”与“本地数据”，且不得让检索内容覆盖本地已给出的行情/资金/技术数据。")
+        } else {
+            lines.append("")
+            lines.append("- 新闻/公告/舆情等维度本地不支持、也无联网能力，若用户问及，如实说明拿不到，不要编造。")
+        }
+
+        return lines.joined(separator: "\n")
+    }
 
     // MARK: - User prompt
 
@@ -167,12 +205,18 @@ public enum PromptBuilder {
             }
 
             var lines = ["### \(title)", "状态：\(statusLabel)"]
-            for itemKey in block.items.keys.sorted() {
+            let sortedKeys = block.items.keys.sorted {
+                let lhs = PromptFieldFormatting.sortIndex($0)
+                let rhs = PromptFieldFormatting.sortIndex($1)
+                return lhs == rhs ? $0 < $1 : lhs < rhs
+            }
+            for itemKey in sortedKeys {
                 guard let item = block.items[itemKey] else { continue }
                 if let value = item.value {
-                    lines.append("- \(itemKey)：\(value.promptRendering)")
+                    lines.append(PromptFieldFormatting.line(key: itemKey, value: value))
                 } else if let reason = item.missingReason {
-                    lines.append("- \(itemKey)：缺失（\(reason)）")
+                    let label = PromptFieldFormatting.specs[itemKey]?.label ?? itemKey
+                    lines.append("- \(label)：缺失（\(reason)）")
                 }
             }
             return lines.joined(separator: "\n")
@@ -199,30 +243,5 @@ public enum PromptBuilder {
             let roleLabel = message.role == .user ? "用户" : "助手"
             return "\(roleLabel)：\(message.content)"
         }.joined(separator: "\n")
-    }
-}
-
-/// Compact, human/LLM-readable rendering for prompt text -- deliberately
-/// **not** JSON syntax (no quoted keys, no braces-as-punctuation noise).
-/// Kept private to this file since it's a prompt-formatting concern, not a
-/// general-purpose `JSONValue` API.
-extension JSONValue {
-    fileprivate var promptRendering: String {
-        switch self {
-        case .string(let value):
-            return value
-        case .int(let value):
-            return String(value)
-        case .double(let value):
-            return String(value)
-        case .bool(let value):
-            return value ? "true" : "false"
-        case .null:
-            return "null"
-        case .array(let values):
-            return "[" + values.map(\.promptRendering).joined(separator: ", ") + "]"
-        case .object(let values):
-            return "{" + values.keys.sorted().map { "\($0): \(values[$0]!.promptRendering)" }.joined(separator: ", ") + "}"
-        }
     }
 }

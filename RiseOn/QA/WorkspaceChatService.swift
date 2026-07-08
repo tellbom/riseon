@@ -28,7 +28,8 @@ public enum WorkspaceChatService {
     public static func ask(
         _ question: String,
         in workspace: inout StockWorkspace,
-        llmService: any LLMService
+        llmService: any LLMService,
+        options: PromptBuilder.Options = PromptBuilder.Options()
     ) async throws -> String {
         guard let pack = workspace.contextPack else {
             throw ChatServiceError.workspaceNotReady
@@ -38,7 +39,8 @@ public enum WorkspaceChatService {
             pack: pack,
             ruleScore: workspace.ruleScore,
             history: workspace.activeChatThread?.messages ?? [],
-            question: question
+            question: question,
+            options: options
         )
 
         try workspace.appendChatMessage(ChatMessage(role: .user, content: question))
@@ -62,7 +64,8 @@ public enum WorkspaceChatService {
     public static func streamAsk(
         _ question: String,
         in workspace: inout StockWorkspace,
-        llmService: any LLMService
+        llmService: any LLMService,
+        options: PromptBuilder.Options = PromptBuilder.Options()
     ) throws -> AsyncThrowingStream<String, Error> {
         guard let pack = workspace.contextPack else {
             throw ChatServiceError.workspaceNotReady
@@ -72,7 +75,8 @@ public enum WorkspaceChatService {
             pack: pack,
             ruleScore: workspace.ruleScore,
             history: workspace.activeChatThread?.messages ?? [],
-            question: question
+            question: question,
+            options: options
         )
 
         try workspace.appendChatMessage(ChatMessage(role: .user, content: question))

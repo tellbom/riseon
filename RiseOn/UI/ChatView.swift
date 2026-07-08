@@ -379,23 +379,42 @@ struct ChatView: View {
         errorMessage = nil
         streamingText = ""
 
+        let settings = LLMConfigurationStore.load()
+        let options = PromptBuilder.Options(webSearchEnabled: settings.webSearchEnabled)
+
         do {
-            let service = try LLMConfigurationStore.makeService()
-            let stream = try WorkspaceChatService.streamAsk(question, in: &current, llmService: service)
-            workspace = current
-            try await workspaceStore.save(current)
+            let service = try LLMConfigurationStore.makeService(settings: settings)
 
-            for try await delta in stream {
-                if Task.isCancelled { break }
-                streamingText += delta
-            }
-
-            if !streamingText.isEmpty {
-                try WorkspaceChatService.finalizeStreamedAnswer(streamingText, in: &current)
+            if settings.webSearchEnabled {
+                // Web-search runs a tool round (search → feed back → answer),
+                // which needs full round-trips rather than a token stream —
+                // `ask` records both sides itself, so there's nothing to
+                // finalize afterward.
+                let answer = try await WorkspaceChatService.ask(question, in: &current, llmService: service, options: options)
+                streamingText = answer
                 workspace = current
                 try await workspaceStore.save(current)
+            } else {
+                let stream = try WorkspaceChatService.streamAsk(question, in: &current, llmService: service, options: options)
+                workspace = current
+                try await workspaceStore.save(current)
+
+                for try await delta in stream {
+                    if Task.isCancelled { break }
+                    streamingText += delta
+                }
+
+                if !streamingText.isEmpty {
+                    try WorkspaceChatService.finalizeStreamedAnswer(streamingText, in: &current)
+                    workspace = current
+                    try await workspaceStore.save(current)
+                }
             }
         } catch {
+            // Persist whatever was recorded (e.g. the user's question `ask`/
+            // `streamAsk` appended before failing) so it isn't lost on error.
+            workspace = current
+            try? await workspaceStore.save(current)
             if let serviceError = error as? LLMServiceError {
                 errorMessage = serviceError.localizedDescription
             } else {
@@ -592,12 +611,42 @@ private struct LLMSettingsView: View {
 
     @State private var endpoint = LLMConfigurationStore.load().endpoint
     @State private var model = LLMConfigurationStore.load().model
+    @State private var webSearchEnabled = LLMConfigurationStore.load().webSearchEnabled
     @State private var apiKey = ""
+    @State private var searchApiKey = ""
     @State private var hasStoredKey = (try? LLMAPIKeyStore.exists()) ?? false
+    @State private var hasStoredSearchKey = (try? WebSearchAPIKeyStore.exists()) ?? false
     @State private var statusMessage: String?
 
     var body: some View {
         Form {
+            Section {
+                ForEach(LLMConfigurationStore.presets) { preset in
+                    Button {
+                        applyPreset(preset)
+                    } label: {
+                        HStack(spacing: 10) {
+                            Image(systemName: preset.webCapable ? "globe" : "cpu")
+                                .foregroundStyle(preset.webCapable ? Color.blue : Color.secondary)
+                                .frame(width: 22)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(preset.name).font(.subheadline.weight(.medium)).foregroundStyle(.primary)
+                                Text(preset.note).font(.caption).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            if endpoint == preset.endpoint && model == preset.model {
+                                Image(systemName: "checkmark").foregroundStyle(.tint)
+                            }
+                        }
+                    }
+                    .buttonStyle(.plain)
+                }
+            } header: {
+                Text("模型预设")
+            } footer: {
+                Text("带地球图标的模型自带联网检索，可补新闻/公告/舆情。")
+            }
+
             Section("OpenAI 兼容接口") {
                 TextField("Endpoint", text: $endpoint)
                     .textInputAutocapitalization(.never)
@@ -618,6 +667,25 @@ private struct LLMSettingsView: View {
                 }
             }
 
+            Section {
+                Toggle("允许模型联网检索新闻/舆情", isOn: $webSearchEnabled)
+                if webSearchEnabled {
+                    SecureField(hasStoredSearchKey ? "搜索 Key 已保存，留空则不修改" : "Tavily 搜索 API Key（可选）", text: $searchApiKey)
+                        .textInputAutocapitalization(.never)
+                    if hasStoredSearchKey {
+                        Button(role: .destructive) {
+                            deleteSearchKey()
+                        } label: {
+                            Label("删除搜索 Key", systemImage: "trash")
+                        }
+                    }
+                }
+            } header: {
+                Text("联网检索")
+            } footer: {
+                Text("开启后：若模型自带联网（如 Perplexity sonar），直接检索；否则可填 Tavily Key 走 web_search 工具检索。关闭时严格离线、不联网。")
+            }
+
             if let statusMessage {
                 Section {
                     Text(statusMessage)
@@ -636,8 +704,16 @@ private struct LLMSettingsView: View {
         }
     }
 
+    private func applyPreset(_ preset: LLMConfigurationStore.Preset) {
+        endpoint = preset.endpoint
+        model = preset.model
+        if preset.webCapable {
+            webSearchEnabled = true
+        }
+    }
+
     private func save() {
-        let settings = LLMConfigurationStore.Settings(endpoint: endpoint, model: model)
+        let settings = LLMConfigurationStore.Settings(endpoint: endpoint, model: model, webSearchEnabled: webSearchEnabled)
         guard settings.isUsable else {
             statusMessage = "请填写有效的 endpoint 和 model。"
             return
@@ -651,6 +727,12 @@ private struct LLMSettingsView: View {
                 hasStoredKey = true
                 apiKey = ""
             }
+            let trimmedSearchKey = searchApiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmedSearchKey.isEmpty {
+                try WebSearchAPIKeyStore.save(trimmedSearchKey)
+                hasStoredSearchKey = true
+                searchApiKey = ""
+            }
             statusMessage = "已保存。"
             dismiss()
         } catch {
@@ -663,6 +745,16 @@ private struct LLMSettingsView: View {
             try LLMAPIKeyStore.delete()
             hasStoredKey = false
             statusMessage = "已删除 API Key。"
+        } catch {
+            statusMessage = "删除失败：\(error.localizedDescription)"
+        }
+    }
+
+    private func deleteSearchKey() {
+        do {
+            try WebSearchAPIKeyStore.delete()
+            hasStoredSearchKey = false
+            statusMessage = "已删除搜索 Key。"
         } catch {
             statusMessage = "删除失败：\(error.localizedDescription)"
         }
