@@ -7,8 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		A1B2C3D4E5F6000000000001 /* RiseOnLiveActivityExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6000000000002 /* RiseOnLiveActivityExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		98EB06832FF126570026FD7E /* Stocks Watch App.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = 98EB06792FF126530026FD7E /* Stocks Watch App.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		A1B2C3D4E5F6000000000001 /* RiseOnLiveActivityExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6000000000002 /* RiseOnLiveActivityExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -36,17 +36,6 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
-		A1B2C3D4E5F6000000000005 /* Embed Foundation Extensions */ = {
-			isa = PBXCopyFilesBuildPhase;
-			buildActionMask = 2147483647;
-			dstPath = "";
-			dstSubfolderSpec = 13;
-			files = (
-				A1B2C3D4E5F6000000000001 /* RiseOnLiveActivityExtension.appex in Embed Foundation Extensions */,
-			);
-			name = "Embed Foundation Extensions";
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 		98EB06842FF126570026FD7E /* Embed Watch Content */ = {
 			isa = PBXCopyFilesBuildPhase;
 			buildActionMask = 2147483647;
@@ -56,6 +45,17 @@
 				98EB06832FF126570026FD7E /* Stocks Watch App.app in Embed Watch Content */,
 			);
 			name = "Embed Watch Content";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A1B2C3D4E5F6000000000005 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				A1B2C3D4E5F6000000000001 /* RiseOnLiveActivityExtension.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXCopyFilesBuildPhase section */
@@ -204,28 +204,6 @@
 			productReference = 98CE91D82FF0328A004BE971 /* RiseOn.app */;
 			productType = "com.apple.product-type.application";
 		};
-		A1B2C3D4E5F6000000000004 /* RiseOnLiveActivityExtension */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = A1B2C3D4E5F6000000000009 /* Build configuration list for PBXNativeTarget "RiseOnLiveActivityExtension" */;
-			buildPhases = (
-				A1B2C3D4E5F6000000000010 /* Sources */,
-				A1B2C3D4E5F6000000000007 /* Frameworks */,
-				A1B2C3D4E5F6000000000011 /* Resources */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-			);
-			fileSystemSynchronizedGroups = (
-				A1B2C3D4E5F6000000000006 /* RiseOnLiveActivityExtension */,
-			);
-			name = RiseOnLiveActivityExtension;
-			packageProductDependencies = (
-			);
-			productName = RiseOnLiveActivityExtension;
-			productReference = A1B2C3D4E5F6000000000002 /* RiseOnLiveActivityExtension.appex */;
-			productType = "com.apple.product-type.app-extension";
-		};
 		98EB06782FF126530026FD7E /* Stocks Watch App */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 98EB06872FF126570026FD7E /* Build configuration list for PBXNativeTarget "Stocks Watch App" */;
@@ -249,6 +227,28 @@
 			productReference = 98EB06792FF126530026FD7E /* Stocks Watch App.app */;
 			productType = "com.apple.product-type.application";
 		};
+		A1B2C3D4E5F6000000000004 /* RiseOnLiveActivityExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A1B2C3D4E5F6000000000009 /* Build configuration list for PBXNativeTarget "RiseOnLiveActivityExtension" */;
+			buildPhases = (
+				A1B2C3D4E5F6000000000010 /* Sources */,
+				A1B2C3D4E5F6000000000007 /* Frameworks */,
+				A1B2C3D4E5F6000000000011 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				A1B2C3D4E5F6000000000006 /* RiseOnLiveActivityExtension */,
+			);
+			name = RiseOnLiveActivityExtension;
+			packageProductDependencies = (
+			);
+			productName = RiseOnLiveActivityExtension;
+			productReference = A1B2C3D4E5F6000000000002 /* RiseOnLiveActivityExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -266,10 +266,10 @@
 					98CE91D72FF0328A004BE971 = {
 						CreatedOnToolsVersion = 26.1;
 					};
-					A1B2C3D4E5F6000000000004 = {
+					98EB06782FF126530026FD7E = {
 						CreatedOnToolsVersion = 26.1;
 					};
-					98EB06782FF126530026FD7E = {
+					A1B2C3D4E5F6000000000004 = {
 						CreatedOnToolsVersion = 26.1;
 					};
 				};
@@ -561,11 +561,11 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphonesimulator*]" = YES;
-				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
 				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphoneos*]" = UIStatusBarStyleDefault;
@@ -583,8 +583,8 @@
 				SDKROOT = auto;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx xros xrsimulator";
-				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG ENABLE_LIVE_ACTIVITY $(inherited)";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
@@ -606,11 +606,11 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphonesimulator*]" = YES;
-				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
 				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphoneos*]" = UIStatusBarStyleDefault;
@@ -628,8 +628,8 @@
 				SDKROOT = auto;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx xros xrsimulator";
-				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "ENABLE_LIVE_ACTIVITY $(inherited)";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
@@ -715,9 +715,9 @@
 				DEVELOPMENT_TEAM = DP9TL55245;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "Config/RiseOnLiveActivityExtension-Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = "RiseOn Live Activity";
 				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
-				INFOPLIST_FILE = Config/RiseOnLiveActivityExtension-Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.1;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -731,8 +731,8 @@
 				SKIP_INSTALL = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
-				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG ENABLE_LIVE_ACTIVITY WIDGET_EXTENSION $(inherited)";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
@@ -750,9 +750,9 @@
 				DEVELOPMENT_TEAM = DP9TL55245;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "Config/RiseOnLiveActivityExtension-Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = "RiseOn Live Activity";
 				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
-				INFOPLIST_FILE = Config/RiseOnLiveActivityExtension-Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.1;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -766,8 +766,8 @@
 				SKIP_INSTALL = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
-				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "ENABLE_LIVE_ACTIVITY WIDGET_EXTENSION $(inherited)";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
