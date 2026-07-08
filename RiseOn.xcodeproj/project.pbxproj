@@ -714,10 +714,10 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = DP9TL55245;
 				ENABLE_PREVIEWS = YES;
-				GENERATE_INFOPLIST_FILE = YES;
+				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_KEY_CFBundleDisplayName = "RiseOn Live Activity";
-				INFOPLIST_KEY_NSExtension = "{NSExtensionPointIdentifier=com.apple.widgetkit-extension;}";
 				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
+				INFOPLIST_FILE = Config/RiseOnLiveActivityExtension-Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.1;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -749,10 +749,10 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = DP9TL55245;
 				ENABLE_PREVIEWS = YES;
-				GENERATE_INFOPLIST_FILE = YES;
+				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_KEY_CFBundleDisplayName = "RiseOn Live Activity";
-				INFOPLIST_KEY_NSExtension = "{NSExtensionPointIdentifier=com.apple.widgetkit-extension;}";
 				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
+				INFOPLIST_FILE = Config/RiseOnLiveActivityExtension-Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.1;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
