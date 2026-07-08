@@ -384,8 +384,10 @@ struct ChatView: View {
 
         do {
             let service = try LLMConfigurationStore.makeService(settings: settings)
+            let usesToolRound = settings.webSearchEnabled
+                && ((try? WebSearchAPIKeyStore.exists()) ?? false)
 
-            if settings.webSearchEnabled {
+            if usesToolRound {
                 // Web-search runs a tool round (search → feed back → answer),
                 // which needs full round-trips rather than a token stream —
                 // `ask` records both sides itself, so there's nothing to
