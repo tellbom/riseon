@@ -89,4 +89,33 @@ public enum WorkspaceChatService {
     public static func finalizeStreamedAnswer(_ content: String, in workspace: inout StockWorkspace) throws {
         try workspace.appendChatMessage(ChatMessage(role: .assistant, content: content))
     }
+
+    /// Same contract as `streamAsk`, but via `llmService.streamGenerateEvents`
+    /// so the caller also sees `.searching`/`.searchDone` "thinking" events
+    /// from the `web_search` tool round, not just the final answer's token
+    /// stream. Callers accumulate `.answerDelta` chunks themselves (same as
+    /// `streamAsk`) and still call `finalizeStreamedAnswer` once the stream
+    /// completes successfully.
+    public static func streamAskEvents(
+        _ question: String,
+        in workspace: inout StockWorkspace,
+        llmService: any LLMService,
+        options: PromptBuilder.Options = PromptBuilder.Options()
+    ) throws -> AsyncThrowingStream<LLMStreamEvent, Error> {
+        guard let pack = workspace.contextPack else {
+            throw ChatServiceError.workspaceNotReady
+        }
+
+        let prompt = PromptBuilder.build(
+            pack: pack,
+            ruleScore: workspace.ruleScore,
+            history: workspace.activeChatThread?.messages ?? [],
+            question: question,
+            options: options
+        )
+
+        try workspace.appendChatMessage(ChatMessage(role: .user, content: question))
+
+        return llmService.streamGenerateEvents(system: prompt.system, user: prompt.user)
+    }
 }

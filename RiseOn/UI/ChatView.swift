@@ -9,6 +9,7 @@ struct ChatView: View {
     @State private var question = ""
     @State private var isStreaming = false
     @State private var streamingText = ""
+    @State private var thinkingLines: [String] = []
     @State private var errorMessage: String?
     @State private var showSettings = false
     @State private var showHistory = false
@@ -163,9 +164,15 @@ struct ChatView: View {
                                 .id(index)
                         }
                         if isStreaming {
+                            if !thinkingLines.isEmpty {
+                                ThinkingBubbles(lines: thinkingLines)
+                                    .id("thinking")
+                            }
                             if streamingText.isEmpty {
-                                TypingBubble()
-                                    .id("streaming")
+                                if thinkingLines.isEmpty {
+                                    TypingBubble()
+                                        .id("streaming")
+                                }
                             } else {
                                 MessageBubble(message: ChatMessage(role: .assistant, content: streamingText))
                                     .id("streaming")
@@ -187,6 +194,12 @@ struct ChatView: View {
                     } else if let lastIndex = messages.indices.last {
                         proxy.scrollTo(lastIndex, anchor: .bottom)
                     }
+                }
+            }
+            .onChange(of: thinkingLines) {
+                guard isStreaming else { return }
+                withAnimation(.easeOut(duration: 0.15)) {
+                    proxy.scrollTo(streamingText.isEmpty ? "thinking" : "streaming", anchor: .bottom)
                 }
             }
             .onChange(of: messages.count) {
@@ -378,6 +391,7 @@ struct ChatView: View {
         isStreaming = true
         errorMessage = nil
         streamingText = ""
+        thinkingLines = []
 
         let settings = LLMConfigurationStore.load()
         let options = PromptBuilder.Options(webSearchEnabled: settings.webSearchEnabled)
@@ -388,14 +402,31 @@ struct ChatView: View {
                 && ((try? WebSearchAPIKeyStore.exists()) ?? false)
 
             if usesToolRound {
-                // Web-search runs a tool round (search → feed back → answer),
-                // which needs full round-trips rather than a token stream —
-                // `ask` records both sides itself, so there's nothing to
-                // finalize afterward.
-                let answer = try await WorkspaceChatService.ask(question, in: &current, llmService: service, options: options)
-                streamingText = answer
+                // Web-search runs a tool round (search → feed back → answer);
+                // `streamAskEvents` surfaces `.searching`/`.searchDone`
+                // "thinking" events around the round before the final
+                // answer streams token-by-token via `.answerDelta`.
+                let stream = try WorkspaceChatService.streamAskEvents(question, in: &current, llmService: service, options: options)
                 workspace = current
                 try await workspaceStore.save(current)
+
+                for try await event in stream {
+                    if Task.isCancelled { break }
+                    switch event {
+                    case .searching(let query):
+                        thinkingLines.append("🔎 正在检索：\(query)")
+                    case .searchDone(let summary):
+                        thinkingLines.append("已汇总：\(summary)")
+                    case .answerDelta(let delta):
+                        streamingText += delta
+                    }
+                }
+
+                if !streamingText.isEmpty {
+                    try WorkspaceChatService.finalizeStreamedAnswer(streamingText, in: &current)
+                    workspace = current
+                    try await workspaceStore.save(current)
+                }
             } else {
                 let stream = try WorkspaceChatService.streamAsk(question, in: &current, llmService: service, options: options)
                 workspace = current
@@ -425,6 +456,7 @@ struct ChatView: View {
         }
 
         streamingText = ""
+        thinkingLines = []
         isStreaming = false
         sendTask = nil
     }
@@ -512,6 +544,46 @@ private struct MessageBubble: View {
             bottomTrailingRadius: message.role == .assistant ? 18 : 5,
             topTrailingRadius: 18
         )
+    }
+}
+
+// MARK: - Thinking bubbles (web-search tool round events)
+
+private struct ThinkingBubbles: View {
+    let lines: [String]
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            ChatAvatar(role: .assistant)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("RiseOn")
+                    .font(.caption2.weight(.medium))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 2)
+                VStack(alignment: .leading, spacing: 5) {
+                    ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
+                        Text(line)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(
+                    UnevenRoundedRectangle(
+                        topLeadingRadius: 18,
+                        bottomLeadingRadius: 5,
+                        bottomTrailingRadius: 18,
+                        topTrailingRadius: 18
+                    )
+                    .fill(Color(.secondarySystemGroupedBackground).opacity(0.7))
+                )
+            }
+            Spacer(minLength: 32)
+        }
+        .accessibilityLabel("正在联网检索：" + lines.joined(separator: "；"))
     }
 }
 
@@ -614,6 +686,7 @@ private struct LLMSettingsView: View {
     @State private var endpoint = LLMConfigurationStore.load().endpoint
     @State private var model = LLMConfigurationStore.load().model
     @State private var webSearchEnabled = LLMConfigurationStore.load().webSearchEnabled
+    @State private var apiProtocol = LLMConfigurationStore.load().apiProtocol
     @State private var apiKey = ""
     @State private var searchApiKey = ""
     @State private var hasStoredKey = (try? LLMAPIKeyStore.exists()) ?? false
@@ -649,7 +722,11 @@ private struct LLMSettingsView: View {
                 Text("带地球图标的模型自带联网检索，可补新闻/公告/舆情。")
             }
 
-            Section("OpenAI 兼容接口") {
+            Section(apiProtocol == .anthropic ? "Anthropic Messages 接口" : "OpenAI 兼容接口") {
+                Picker("接口协议", selection: $apiProtocol) {
+                    Text("OpenAI 兼容").tag(LLMConfigurationStore.WireProtocol.openai)
+                    Text("Anthropic (Claude)").tag(LLMConfigurationStore.WireProtocol.anthropic)
+                }
                 TextField("Endpoint", text: $endpoint)
                     .textInputAutocapitalization(.never)
                     .keyboardType(.URL)
@@ -672,7 +749,7 @@ private struct LLMSettingsView: View {
             Section {
                 Toggle("允许模型联网检索新闻/舆情", isOn: $webSearchEnabled)
                 if webSearchEnabled {
-                    SecureField(hasStoredSearchKey ? "搜索 Key 已保存，留空则不修改" : "Tavily 搜索 API Key（可选）", text: $searchApiKey)
+                    SecureField(hasStoredSearchKey ? "搜索 Key 已保存，留空则不修改" : "MX 妙想搜索 API Key（可选）", text: $searchApiKey)
                         .textInputAutocapitalization(.never)
                     if hasStoredSearchKey {
                         Button(role: .destructive) {
@@ -685,7 +762,7 @@ private struct LLMSettingsView: View {
             } header: {
                 Text("联网检索")
             } footer: {
-                Text("开启后：若模型自带联网（如 Perplexity sonar），直接检索；否则可填 Tavily Key 走 web_search 工具检索。关闭时严格离线、不联网。")
+                Text("开启后：若模型自带联网（如 Perplexity sonar），直接检索；否则可填东方财富妙想（MX）搜索 Key 走 web_search 工具检索。关闭时严格离线、不联网。")
             }
 
             if let statusMessage {
@@ -709,13 +786,14 @@ private struct LLMSettingsView: View {
     private func applyPreset(_ preset: LLMConfigurationStore.Preset) {
         endpoint = preset.endpoint
         model = preset.model
+        apiProtocol = preset.apiProtocol
         if preset.webCapable {
             webSearchEnabled = true
         }
     }
 
     private func save() {
-        let settings = LLMConfigurationStore.Settings(endpoint: endpoint, model: model, webSearchEnabled: webSearchEnabled)
+        let settings = LLMConfigurationStore.Settings(endpoint: endpoint, model: model, webSearchEnabled: webSearchEnabled, apiProtocol: apiProtocol)
         guard settings.isUsable else {
             statusMessage = "请填写有效的 endpoint 和 model。"
             return

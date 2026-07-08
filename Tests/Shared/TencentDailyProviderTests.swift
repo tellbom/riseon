@@ -64,7 +64,7 @@ final class TencentDailyProviderTests: XCTestCase {
         let json = fixtureJSON(rows: #"["2024-06-03","10","11","12","9","500","123456.0"]"#)
         let bars = provider.parseBars(json: json, fullSymbol: "sh600519")
 
-        XCTAssertEqual(bars.first?.amount, 123456.0, accuracy: 1e-9)
+        XCTAssertEqual(bars.first?.amount ?? -1, 123456.0, accuracy: 1e-9)
     }
 
     func test_multipleRows_parsedInOrder() {
@@ -117,6 +117,6 @@ final class TencentDailyProviderTests: XCTestCase {
 
         let bars = provider.parseBars(json: json, fullSymbol: "sh600519")
         XCTAssertEqual(bars.count, 1)
-        XCTAssertEqual(bars.first?.close, 11, accuracy: 1e-9)
+        XCTAssertEqual(bars.first?.close ?? -1, 11, accuracy: 1e-9)
     }
 }

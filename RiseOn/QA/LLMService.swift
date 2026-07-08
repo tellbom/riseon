@@ -22,6 +22,47 @@ public protocol LLMService: Sendable {
     /// The stream finishes normally once the underlying response completes,
     /// or throws the same `LLMServiceError` cases `generate` would.
     func streamGenerate(system: String, user: String) -> AsyncThrowingStream<String, Error>
+
+    /// Same as `streamGenerate`, but surfaces "thinking" events (the
+    /// `web_search` tool round's searches) alongside the final answer's
+    /// token stream — see `LLMStreamEvent`. The default implementation
+    /// bridges `streamGenerate`'s plain text stream into `.answerDelta`
+    /// events with no search events, so existing conformers keep working
+    /// unchanged; concrete direct-HTTP services override this to interleave
+    /// real `.searching`/`.searchDone` events around their tool round.
+    func streamGenerateEvents(system: String, user: String) -> AsyncThrowingStream<LLMStreamEvent, Error>
+}
+
+public extension LLMService {
+    func streamGenerateEvents(system: String, user: String) -> AsyncThrowingStream<LLMStreamEvent, Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    for try await delta in streamGenerate(system: system, user: user) {
+                        continuation.yield(.answerDelta(delta))
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+}
+
+/// One "thinking" or answer event from `LLMService.streamGenerateEvents` —
+/// lets the chat UI show what the model is doing (which query it's
+/// searching, what it found) instead of just a blank "typing…" indicator
+/// during the `web_search` tool round.
+public enum LLMStreamEvent: Sendable {
+    /// The model is about to run one on-device search — its query, before
+    /// the search executes.
+    case searching(query: String)
+    /// That search's sentiment-factor summary (one sentence), after it ran.
+    case searchDone(summary: String)
+    /// An incremental chunk of the final answer's token stream.
+    case answerDelta(String)
 }
 
 /// Structured failure states (task.md S10.2), **inspired by** —not a literal
@@ -57,6 +98,27 @@ public enum LLMServiceError: Error, Equatable, Sendable {
     case emptyOutput
     /// Catch-all — mirrors `UNKNOWN_BACKEND_ERROR`.
     case unknown(String)
+}
+
+public extension LLMServiceError {
+    /// Maps an HTTP status code to a structured error, or `nil` for 2xx —
+    /// shared by every direct-HTTP `LLMService` conformer (OpenAI-compatible,
+    /// Anthropic) so the same three named failure modes (超时/鉴权/空输出, plus
+    /// the real HTTP-layer failures a Python `LiteLLM`-backed enum doesn't
+    /// need: network/rateLimited/serverError) map identically regardless of
+    /// wire format.
+    static func mapped(forStatusCode statusCode: Int, body: Data) -> LLMServiceError? {
+        switch statusCode {
+        case 200..<300:
+            return nil
+        case 401, 403:
+            return .unauthorized
+        case 429:
+            return .rateLimited
+        default:
+            return .serverError(statusCode: statusCode, message: String(data: body, encoding: .utf8))
+        }
+    }
 }
 
 extension LLMServiceError: LocalizedError {

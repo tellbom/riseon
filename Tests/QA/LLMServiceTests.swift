@@ -164,6 +164,62 @@ final class LLMServiceTests: XCTestCase {
         }
     }
 
+    // MARK: - S19 T3: `streamGenerateEvents` default extension
+
+    private struct MultiChunkMockService: LLMService {
+        let chunks: [String]
+
+        func generate(system: String, user: String) async throws -> String {
+            chunks.joined()
+        }
+
+        func streamGenerate(system: String, user: String) -> AsyncThrowingStream<String, Error> {
+            AsyncThrowingStream { continuation in
+                for chunk in chunks { continuation.yield(chunk) }
+                continuation.finish()
+            }
+        }
+    }
+
+    /// Conformers that don't override `streamGenerateEvents` (i.e. every
+    /// `LLMService` except `OpenAICompatibleLLMService`/`AnthropicLLMService`)
+    /// get it for free via `LLMService`'s default extension — this must
+    /// preserve chunk order and wrap each one as `.answerDelta`, with no
+    /// `.searching`/`.searchDone` events (there's no tool round to report on).
+    func test_streamGenerateEvents_defaultImplementation_bridgesChunksInOrder() async throws {
+        let mock = MultiChunkMockService(chunks: ["Hel", "lo", "世界"])
+        var events: [LLMStreamEvent] = []
+        for try await event in mock.streamGenerateEvents(system: "sys", user: "usr") {
+            events.append(event)
+        }
+        XCTAssertEqual(events.count, 3)
+        for (index, expected) in mock.chunks.enumerated() {
+            guard case .answerDelta(let text) = events[index] else {
+                return XCTFail("expected .answerDelta at index \(index), got \(events[index])")
+            }
+            XCTAssertEqual(text, expected)
+        }
+    }
+
+    func test_streamGenerateEvents_defaultImplementation_propagatesFailure() async {
+        struct FailingMockService: LLMService {
+            func generate(system: String, user: String) async throws -> String { "unused" }
+            func streamGenerate(system: String, user: String) -> AsyncThrowingStream<String, Error> {
+                AsyncThrowingStream { continuation in
+                    continuation.finish(throwing: LLMServiceError.timeout)
+                }
+            }
+        }
+        do {
+            for try await _ in FailingMockService().streamGenerateEvents(system: "sys", user: "usr") {}
+            XCTFail("expected an error to be thrown")
+        } catch let error as LLMServiceError {
+            XCTAssertEqual(error, .timeout)
+        } catch {
+            XCTFail("expected LLMServiceError, got \(error)")
+        }
+    }
+
     // MARK: - SSE line parsing (pure function)
 
     func test_parseSSEDataLine_validDelta_returnsDelta() {

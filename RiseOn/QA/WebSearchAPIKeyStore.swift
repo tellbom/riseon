@@ -1,9 +1,10 @@
 import Foundation
 import Security
 
-/// Secure storage for the optional web-search API key (Tavily), used by the
-/// `web_search` tool round in `OpenAICompatibleLLMService` when the user has
-/// enabled 联网检索 but their chat model isn't itself search-augmented.
+/// Secure storage for the optional web-search API key (东方财富妙想 mx-search,
+/// `MX_APIKEY`), used by the `web_search` tool round in every direct-HTTP
+/// `LLMService` conformer when the user has enabled 联网检索 but their chat
+/// model isn't itself search-augmented.
 ///
 /// Same Keychain design as `LLMAPIKeyStore` (device-only, unlocked-only,
 /// never logged) — a separate service identifier so the two keys are stored

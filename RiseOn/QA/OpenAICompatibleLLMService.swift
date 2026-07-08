@@ -28,23 +28,13 @@ public actor OpenAICompatibleLLMService: LLMService {
         /// `maxRounds` times before answering — used when 联网检索 is enabled
         /// but the chat model isn't itself search-augmented. `nil` (default)
         /// keeps the plain single-call behavior unchanged.
-        public var webSearch: WebSearchOptions?
+        public var webSearch: WebSearchToolOptions?
 
-        public init(endpoint: URL, model: String, timeoutSeconds: TimeInterval = 60, webSearch: WebSearchOptions? = nil) {
+        public init(endpoint: URL, model: String, timeoutSeconds: TimeInterval = 60, webSearch: WebSearchToolOptions? = nil) {
             self.endpoint = endpoint
             self.model = model
             self.timeoutSeconds = timeoutSeconds
             self.webSearch = webSearch
-        }
-    }
-
-    public struct WebSearchOptions: Sendable {
-        public var service: any WebSearchService
-        public var maxRounds: Int
-
-        public init(service: any WebSearchService, maxRounds: Int = 3) {
-            self.service = service
-            self.maxRounds = maxRounds
         }
     }
 
@@ -140,7 +130,7 @@ public actor OpenAICompatibleLLMService: LLMService {
     /// feed results back; repeat up to `maxRounds`, then force a final answer.
     /// A single search failing isn't fatal — its result slot carries an error
     /// note so the model can still answer from the local data it was given.
-    private func runToolRound(system: String, user: String, apiKey: String, webSearch: WebSearchOptions) async throws -> String {
+    private func runToolRound(system: String, user: String, apiKey: String, webSearch: WebSearchToolOptions) async throws -> String {
         var messages: [[String: Any]] = [
             ["role": "system", "content": system],
             ["role": "user", "content": user],
@@ -230,10 +220,7 @@ public actor OpenAICompatibleLLMService: LLMService {
     }
 
     nonisolated static func formatSearchResults(_ results: [WebSearchResult]) -> String {
-        guard !results.isEmpty else { return "未检索到相关结果。" }
-        return results.enumerated().map { index, result in
-            "\(index + 1). \(result.title)\n\(result.url)\n\(result.snippet)"
-        }.joined(separator: "\n\n")
+        SearchResultFormatting.format(results)
     }
 
     public nonisolated func streamGenerate(system: String, user: String) -> AsyncThrowingStream<String, Error> {
@@ -266,6 +253,151 @@ public actor OpenAICompatibleLLMService: LLMService {
                 }
             }
             continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
+    // MARK: - Event stream (thinking events + streamed answer)
+
+    /// `streamGenerate`'s tool round falls back to one non-streamed chunk
+    /// (see above); this is the real "边思考边流式" path — the tool round's
+    /// searches surface as `.searching`/`.searchDone` events as they happen,
+    /// and once the model stops asking for tools (or rounds run out) the
+    /// final answer streams token-by-token as `.answerDelta`.
+    public nonisolated func streamGenerateEvents(system: String, user: String) -> AsyncThrowingStream<LLMStreamEvent, Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    try await runEvents(system: system, user: user, continuation: continuation)
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
+    private func runEvents(
+        system: String,
+        user: String,
+        continuation: AsyncThrowingStream<LLMStreamEvent, Error>.Continuation
+    ) async throws {
+        let apiKey = try loadAPIKey()
+
+        guard let webSearch = configuration.webSearch else {
+            let messages: [[String: Any]] = [
+                ["role": "system", "content": system],
+                ["role": "user", "content": user],
+            ]
+            try await streamChatEvents(messages: messages, apiKey: apiKey, continuation: continuation)
+            return
+        }
+
+        var messages: [[String: Any]] = [
+            ["role": "system", "content": system],
+            ["role": "user", "content": user],
+        ]
+        let tools = [Self.webSearchToolSchema()]
+
+        roundLoop: for _ in 0..<max(1, webSearch.maxRounds) {
+            let data = try await sendChat(messages: messages, tools: tools, apiKey: apiKey)
+            guard let message = Self.firstMessage(from: data) else {
+                throw LLMServiceError.invalidResponse("missing choices[0].message")
+            }
+
+            let toolCalls = message["tool_calls"] as? [[String: Any]] ?? []
+            if toolCalls.isEmpty {
+                break roundLoop
+            }
+
+            var assistantMessage: [String: Any] = ["role": "assistant", "tool_calls": toolCalls]
+            if let content = message["content"] as? String { assistantMessage["content"] = content }
+            messages.append(assistantMessage)
+
+            for call in toolCalls {
+                let id = (call["id"] as? String) ?? ""
+                let query = Self.toolCallQuery(call) ?? ""
+                let content: String
+                if query.isEmpty {
+                    content = "（未提供搜索关键词）"
+                } else {
+                    continuation.yield(.searching(query: query))
+                    do {
+                        let results = try await webSearch.service.search(query)
+                        continuation.yield(.searchDone(summary: SearchResultFormatting.summaryLine(results)))
+                        content = SearchResultFormatting.format(results)
+                    } catch {
+                        content = "检索失败：\(error.localizedDescription)。请基于本地数据作答，并说明未能联网检索。"
+                        continuation.yield(.searchDone(summary: content))
+                    }
+                }
+                messages.append(["role": "tool", "tool_call_id": id, "content": content])
+            }
+        }
+
+        // Model stopped asking for tools, or rounds ran out — either way,
+        // force the final answer with one streamed, tool-free request.
+        try await streamChatEvents(messages: messages, apiKey: apiKey, continuation: continuation)
+    }
+
+    /// Shared streaming request body for `streamGenerateEvents` — same SSE
+    /// wire format as `runStream`, kept as a separate method (rather than
+    /// reusing `runStream`) so that method's existing tested behavior stays
+    /// untouched.
+    private func streamChatEvents(
+        messages: [[String: Any]],
+        apiKey: String,
+        continuation: AsyncThrowingStream<LLMStreamEvent, Error>.Continuation
+    ) async throws {
+        var request = URLRequest(url: configuration.endpoint)
+        request.httpMethod = "POST"
+        request.timeoutInterval = configuration.timeoutSeconds
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.httpBody = try JSONSerialization.data(withJSONObject: [
+            "model": configuration.model,
+            "messages": messages,
+            "stream": true,
+        ])
+
+        let bytes: URLSession.AsyncBytes
+        let response: URLResponse
+        do {
+            (bytes, response) = try await session.bytes(for: request)
+        } catch let error as URLError where error.code == .timedOut {
+            throw LLMServiceError.timeout
+        } catch let error as URLError {
+            throw LLMServiceError.network(error.localizedDescription)
+        } catch {
+            throw LLMServiceError.network(error.localizedDescription)
+        }
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw LLMServiceError.unknown("response was not an HTTP response")
+        }
+
+        if httpResponse.statusCode < 200 || httpResponse.statusCode >= 300 {
+            var body = Data()
+            for try await byte in bytes {
+                body.append(byte)
+            }
+            throw Self.error(forStatusCode: httpResponse.statusCode, body: body) ?? .unknown("HTTP \(httpResponse.statusCode)")
+        }
+
+        var receivedAnyDelta = false
+        for try await line in bytes.lines {
+            switch Self.parseSSEDataLine(line) {
+            case .delta(let text):
+                receivedAnyDelta = true
+                continuation.yield(.answerDelta(text))
+            case .done:
+                return
+            case nil:
+                continue
+            }
+        }
+        guard receivedAnyDelta else {
+            throw LLMServiceError.emptyOutput
         }
     }
 
@@ -346,21 +478,7 @@ public actor OpenAICompatibleLLMService: LLMService {
 
     /// Maps an HTTP status code to a structured error, or `nil` for 2xx.
     nonisolated static func error(forStatusCode statusCode: Int, body: Data) -> LLMServiceError? {
-        switch statusCode {
-        case 200..<300:
-            return nil
-        case 401, 403:
-            return .unauthorized
-        case 429:
-            return .rateLimited
-        default:
-            // Covers 5xx plus any other non-2xx status the three named
-            // cases above don't specifically call out (task.md only names
-            // 超时/鉴权/空输出 — timeout/auth/empty-output — explicitly;
-            // everything else still needs *a* clear error state rather than
-            // being silently swallowed).
-            return .serverError(statusCode: statusCode, message: String(data: body, encoding: .utf8))
-        }
+        LLMServiceError.mapped(forStatusCode: statusCode, body: body)
     }
 
     /// Parses `{choices:[{message:{content:String}}]}`, throwing a

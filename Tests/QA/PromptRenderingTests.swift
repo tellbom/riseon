@@ -47,7 +47,17 @@ final class PromptRenderingTests: XCTestCase {
     func test_systemPrompt_webEnabled_permitsRetrievalWithCitation() {
         let system = PromptBuilder.systemPrompt(options: .init(webSearchEnabled: true))
         XCTAssertTrue(system.contains("联网检索"))
-        XCTAssertTrue(system.contains("注明来源与时间"))
+        XCTAssertTrue(system.contains("注明信息来源机构与发布时间"))
+    }
+
+    /// S19 T2: retrieved content must be treated as a 情绪面/舆情因子 that's
+    /// cross-referenced against local 资金面/技术面 data, not a standalone
+    /// answer -- and local data always wins on conflict.
+    func test_systemPrompt_webEnabled_treatsRetrievalAsSentimentFactorRequiringCrossReference() {
+        let system = PromptBuilder.systemPrompt(options: .init(webSearchEnabled: true))
+        XCTAssertTrue(system.contains("情绪面/舆情因子"))
+        XCTAssertTrue(system.contains("交叉验证"))
+        XCTAssertTrue(system.contains("以本地数据为准"))
     }
 
     func test_build_passesWebOptionIntoSystem() {
