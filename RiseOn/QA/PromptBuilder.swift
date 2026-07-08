@@ -47,7 +47,7 @@ public enum PromptBuilder {
 
     硬性规则：
     - 只使用本轮提供的数据作答，不得编造、猜测数据之外的行情、新闻、财务数据或市场消息。
-    - 如果某个数据块被标注为"本地不支持"（如新闻、基本面、筹码、资金流），必须如实告知用户这类信息本地拿不到，不能假装拥有、也不能用其他数据臆测替代。
+    - 如果某个数据块被标注为"本地不支持"（如新闻、筹码等），必须如实告知用户这类信息本地拿不到，不能假装拥有、也不能用其他数据臆测替代。
     - 如果某个数据块状态是"拉取失败""已过期""部分可用"等非"可用"状态（不只是"本地不支持"），同样要如实告知用户这部分数据当前有局限、可能不完整或不是最新的，不能当作完整可靠的数据使用。
     - 必须向用户声明数据快照时间与数据质量等级；如果整体质量是 limited 或 poor，或者存在 warnings，需要明确提示用户数据可能过期或不完整，让用户自行判断是否需要刷新。
     - 结合 `levels` 块给出的支撑位/阻力位与技术指标数据，给出结构化的买卖点建议：ideal_buy（理想买入价）、secondary_buy（次选买入价）、stop_loss（止损价）、take_profit（止盈价），并说明依据。若你自己没有更合适的止损位判断，可以直接参考 `levels` 块里的第一个支撑位作为保守止损参考。
@@ -110,8 +110,10 @@ public enum PromptBuilder {
     private static let blockOrder = [
         ContextBlockKey.quote, ContextBlockKey.dailyBars, ContextBlockKey.technical,
         ContextBlockKey.factors, ContextBlockKey.levels,
-        ContextBlockKey.chip, ContextBlockKey.fundamentals, ContextBlockKey.news,
-        ContextBlockKey.capitalFlow, ContextBlockKey.events,
+        ContextBlockKey.valuation, ContextBlockKey.capitalFlow, ContextBlockKey.dragonTiger,
+        ContextBlockKey.limitUp, ContextBlockKey.sector, ContextBlockKey.sentiment,
+        ContextBlockKey.fundamentals, ContextBlockKey.announcements,
+        ContextBlockKey.chip, ContextBlockKey.news, ContextBlockKey.events,
     ]
 
     private static let blockDisplayNames: [String: String] = [
@@ -125,6 +127,12 @@ public enum PromptBuilder {
         ContextBlockKey.news: "新闻/情报",
         ContextBlockKey.capitalFlow: "资金流",
         ContextBlockKey.events: "事件日历",
+        ContextBlockKey.valuation: "估值/交易面",
+        ContextBlockKey.dragonTiger: "龙虎榜",
+        ContextBlockKey.limitUp: "涨跌停",
+        ContextBlockKey.sector: "行业板块",
+        ContextBlockKey.announcements: "公告",
+        ContextBlockKey.sentiment: "情绪面",
     ]
 
     /// Chinese label for every `ContextFieldStatus`, not just

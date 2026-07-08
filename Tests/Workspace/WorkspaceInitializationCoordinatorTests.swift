@@ -39,6 +39,19 @@ final class WorkspaceInitializationCoordinatorTests: XCTestCase {
 
     private struct MockProviderError: Error { static let simulatedFailure = MockProviderError() }
 
+    /// External factors aren't the focus of these end-to-end tests (they have
+    /// their own coverage in `ExternalFactorCollectorTests`/
+    /// `ContextPackBuilderExternalTests`), and the real
+    /// `ExternalFactorCollector` would fire live network calls here. This
+    /// stub returns an empty bundle instantly so these tests stay
+    /// deterministic and offline — the quote/daily/technical/levels/quality
+    /// assertions below are unaffected by an empty external bundle.
+    private struct MockExternalCollector: ExternalFactorCollecting {
+        func collect(code: String, todayYYYYMMDD: String) async -> ExternalFactorBundle {
+            ExternalFactorBundle()
+        }
+    }
+
     // MARK: - Fixtures
 
     private func makeBars(count: Int = 30) -> [DailyBar] {
@@ -72,6 +85,7 @@ final class WorkspaceInitializationCoordinatorTests: XCTestCase {
             workspaceStore: store,
             dailyProvider: MockDailyBarsProvider(.succeed(makeBars())),
             quoteProvider: MockQuoteProvider(.succeed(makeQuote())),
+            externalCollector: MockExternalCollector(),
             isTradingDayToday: { true }
         )
         let queue = InitializationQueue(executeStep: coordinator.stepExecutor())
@@ -101,6 +115,7 @@ final class WorkspaceInitializationCoordinatorTests: XCTestCase {
             workspaceStore: store,
             dailyProvider: MockDailyBarsProvider(.fail),
             quoteProvider: MockQuoteProvider(.succeed(makeQuote())),
+            externalCollector: MockExternalCollector(),
             isTradingDayToday: { true }
         )
         let queue = InitializationQueue(executeStep: coordinator.stepExecutor())
@@ -128,6 +143,7 @@ final class WorkspaceInitializationCoordinatorTests: XCTestCase {
             workspaceStore: store,
             dailyProvider: MockDailyBarsProvider(.succeed(makeBars())),
             quoteProvider: MockQuoteProvider(.fail),
+            externalCollector: MockExternalCollector(),
             isTradingDayToday: { true }
         )
         let queue = InitializationQueue(executeStep: coordinator.stepExecutor())
@@ -149,6 +165,7 @@ final class WorkspaceInitializationCoordinatorTests: XCTestCase {
             workspaceStore: store,
             dailyProvider: MockDailyBarsProvider(.fail),
             quoteProvider: MockQuoteProvider(.fail),
+            externalCollector: MockExternalCollector(),
             isTradingDayToday: { true }
         )
         let queue = InitializationQueue(executeStep: coordinator.stepExecutor())
@@ -170,6 +187,7 @@ final class WorkspaceInitializationCoordinatorTests: XCTestCase {
             workspaceStore: store,
             dailyProvider: MockDailyBarsProvider(.succeed(makeBars())),
             quoteProvider: MockQuoteProvider(.succeed(makeQuote())),
+            externalCollector: MockExternalCollector(),
             isTradingDayToday: { true }
         )
         let queue = InitializationQueue(executeStep: coordinator.stepExecutor())
@@ -195,6 +213,7 @@ final class WorkspaceInitializationCoordinatorTests: XCTestCase {
             workspaceStore: store,
             dailyProvider: MockDailyBarsProvider(.succeed(makeBars())),
             quoteProvider: MockQuoteProvider(.succeed(makeQuote())),
+            externalCollector: MockExternalCollector(),
             isTradingDayToday: { true }
         )
         let queue = InitializationQueue(executeStep: coordinator.stepExecutor())

@@ -46,11 +46,18 @@ public actor WorkspaceInitializationCoordinator {
         var ruleScore: RuleScore?
         var windowReturns: [Int: Double] = [:]
         var rangePosition20d: Double?
+        /// On-device external factors (资金流/龙虎榜/估值/板块/基本面/公告/
+        /// 情绪), fetched during Step B alongside the realtime quote. `nil`
+        /// only if the fetch never ran; the collector itself never throws
+        /// (each source degrades independently), so a partially-failed fetch
+        /// still yields a bundle with per-source `fetch_failed` statuses.
+        var externalBundle: ExternalFactorBundle?
     }
 
     private let workspaceStore: WorkspaceStore
     private let dailyProvider: any DailyBarsProvider
     private let quoteProvider: any QuoteProvider
+    private let externalCollector: any ExternalFactorCollecting
     private let isTradingDayToday: @Sendable () -> Bool
     private var staging: [String: Staging] = [:]
 
@@ -58,11 +65,13 @@ public actor WorkspaceInitializationCoordinator {
         workspaceStore: WorkspaceStore,
         dailyProvider: any DailyBarsProvider = TencentDailyProvider(),
         quoteProvider: any QuoteProvider = TencentQuoteProvider(),
+        externalCollector: any ExternalFactorCollecting = ExternalFactorCollector(),
         isTradingDayToday: @escaping @Sendable () -> Bool = { WorkspaceInitializationCoordinator.defaultIsTradingDayToday() }
     ) {
         self.workspaceStore = workspaceStore
         self.dailyProvider = dailyProvider
         self.quoteProvider = quoteProvider
+        self.externalCollector = externalCollector
         self.isTradingDayToday = isTradingDayToday
     }
 
@@ -166,6 +175,17 @@ public actor WorkspaceInitializationCoordinator {
     private func overlayRealtime(code: String) async {
         var entry = staging[code] ?? Staging()
 
+        // External factors first, unconditionally — independent of whether
+        // `StockSymbol` can represent this code (the realtime-quote overlay
+        // below can't run for 5/9-prefixed codes, but the external collector
+        // uses `ACodeResolver`, which does cover them). The collector never
+        // throws; every source degrades to its own `fetch_failed` status.
+        entry.externalBundle = await externalCollector.collect(
+            code: code,
+            todayYYYYMMDD: Self.compactDateString(Date())
+        )
+        staging[code] = entry
+
         guard let symbol = StockSymbol(code: code) else {
             // `StockSymbol` can't represent this code (e.g. 5/9-prefixed) --
             // a structural gap documented since S5 (the existing
@@ -250,7 +270,8 @@ public actor WorkspaceInitializationCoordinator {
             latestSignals: entry.latestSignals,
             ruleScore: entry.ruleScore,
             windowReturns: entry.windowReturns,
-            rangePosition20d: entry.rangePosition20d
+            rangePosition20d: entry.rangePosition20d,
+            externalBundle: entry.externalBundle
         ))
 
         try workspace.applyRefreshedPack(pack, ruleScore: entry.ruleScore, snapshotDate: Date(), source: "tencent")
@@ -266,6 +287,17 @@ public actor WorkspaceInitializationCoordinator {
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.timeZone = TimeZone(identifier: "Asia/Shanghai")
         formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.string(from: date)
+    }
+
+    /// `yyyyMMdd` (no separators) — the form Eastmoney's涨停池 `date` param
+    /// expects.
+    private static func compactDateString(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(identifier: "Asia/Shanghai")
+        formatter.dateFormat = "yyyyMMdd"
         return formatter.string(from: date)
     }
 }

@@ -60,8 +60,17 @@ struct ChatThreadListView: View {
     }
 
     private func row(for thread: ChatThread) -> some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 4) {
+        let isActive = thread.id == workspace.activeChatThreadID
+        return HStack(spacing: 12) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(isActive ? AnyShapeStyle(Color.accentColor.gradient) : AnyShapeStyle(Color(.tertiarySystemFill)))
+                    .frame(width: 38, height: 38)
+                Image(systemName: "bubble.left.and.text.bubble.right")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(isActive ? .white : .secondary)
+            }
+            VStack(alignment: .leading, spacing: 3) {
                 Text(title(for: thread))
                     .font(.body)
                     .foregroundStyle(.primary)
@@ -70,12 +79,17 @@ struct ChatThreadListView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
-            Spacer()
-            if thread.id == workspace.activeChatThreadID {
-                Image(systemName: "checkmark")
+            Spacer(minLength: 8)
+            if isActive {
+                Text("使用中")
+                    .font(.caption2.weight(.semibold))
                     .foregroundStyle(.tint)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(Color.accentColor.opacity(0.12), in: Capsule())
             }
         }
+        .padding(.vertical, 4)
         .contentShape(Rectangle())
     }
 

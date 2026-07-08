@@ -22,4 +22,16 @@ public enum ContextBlockKey {
     public static let news = "news"
     public static let capitalFlow = "capital_flow"
     public static let events = "events"
+
+    // On-device external factors (feasibility review): dimensions the MVP
+    // left permanently `not_supported` but which are now fetched directly
+    // over public HTTPS JSON (see `ExternalData/`). `capital_flow` and
+    // `fundamentals` already existed above and get upgraded from
+    // `not_supported` to real data when the external bundle is present.
+    public static let valuation = "valuation"
+    public static let dragonTiger = "dragon_tiger"
+    public static let limitUp = "limit_up"
+    public static let sector = "sector"
+    public static let announcements = "announcements"
+    public static let sentiment = "sentiment"
 }

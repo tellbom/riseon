@@ -25,6 +25,12 @@ final class HomeListViewModelTests: XCTestCase {
         }
     }
 
+    private struct MockExternalCollector: ExternalFactorCollecting {
+        func collect(code: String, todayYYYYMMDD: String) async -> ExternalFactorBundle {
+            ExternalFactorBundle()
+        }
+    }
+
     private func makeStores() throws -> (watchlist: WatchlistStore, workspace: WorkspaceStore) {
         let watchlistStore = WatchlistStore(key: "HomeListViewModelTests-\(UUID().uuidString)")
         let workspaceDirectory = FileManager.default.temporaryDirectory
@@ -39,6 +45,7 @@ final class HomeListViewModelTests: XCTestCase {
             workspaceStore: workspaceStore,
             dailyProvider: MockDailyBarsProvider(),
             quoteProvider: MockQuoteProvider(),
+            externalCollector: MockExternalCollector(),
             isTradingDayToday: { true }
         )
         let queue = InitializationQueue(executeStep: coordinator.stepExecutor())

@@ -54,6 +54,14 @@ public enum ContextPackBuilder {
         public var windowReturns: [Int: Double]
         /// `FactorWindows.rangePosition(bars:)` output, window=20 (S6.3).
         public var rangePosition20d: Double?
+        /// On-device external factors (资金流/龙虎榜/估值/板块/基本面/公告/
+        /// 情绪), from `ExternalFactorCollector`. `nil` preserves the original
+        /// MVP behavior exactly — `capital_flow`/`fundamentals` stay
+        /// `not_supported` and the extra blocks aren't added — so every
+        /// pre-existing call site / test that doesn't pass a bundle is
+        /// unaffected. When present, each source's block reflects its own
+        /// availability (`available`/`partial`/`fetch_failed`) independently.
+        public var externalBundle: ExternalFactorBundle?
 
         public init(
             subject: ContextPackSubject,
@@ -66,7 +74,8 @@ public enum ContextPackBuilder {
             latestSignals: TechnicalIndicators.LatestSignals? = nil,
             ruleScore: RuleScore? = nil,
             windowReturns: [Int: Double] = [:],
-            rangePosition20d: Double? = nil
+            rangePosition20d: Double? = nil,
+            externalBundle: ExternalFactorBundle? = nil
         ) {
             self.subject = subject
             self.dailyBars = dailyBars
@@ -79,6 +88,7 @@ public enum ContextPackBuilder {
             self.ruleScore = ruleScore
             self.windowReturns = windowReturns
             self.rangePosition20d = rangePosition20d
+            self.externalBundle = externalBundle
         }
     }
 
@@ -117,11 +127,21 @@ public enum ContextPackBuilder {
         blocks[ContextBlockKey.capitalFlow] = notSupportedBlock(reason: "端上无法直连资金流数据源")
         blocks[ContextBlockKey.events] = notSupportedBlock(reason: "端上不支持事件日历")
 
+        // On-device external factors (feasibility review). When a bundle is
+        // present, these overwrite the `not_supported` placeholders for
+        // `capital_flow`/`fundamentals` and add the extra dimension blocks;
+        // when absent, the MVP baseline above stands untouched.
+        var externalWarnings: [String] = []
+        if let bundle = inputs.externalBundle {
+            applyExternalBlocks(bundle, into: &blocks)
+            externalWarnings = bundle.warnings
+        }
+
         // Overlay warnings (volume-skip, maybe bar-not-yet-available) land
         // in `dataQuality.warnings`, mirroring how the Python builder
         // threads block-building warnings into `_build_data_quality`'s
         // `warnings` parameter rather than duplicating them per-block.
-        let dataQuality = buildDataQuality(blocks: blocks, warnings: inputs.overlayWarnings)
+        let dataQuality = buildDataQuality(blocks: blocks, warnings: inputs.overlayWarnings + externalWarnings)
 
         return ContextPack(subject: inputs.subject, blocks: blocks, dataQuality: dataQuality)
     }
@@ -264,6 +284,176 @@ public enum ContextPackBuilder {
             items["stop_loss_fallback"] = ContextItem(status: .available, value: .double(stopLoss))
         }
         return ContextBlock(status: .available, items: items)
+    }
+
+    // MARK: - External-factor blocks (on-device, feasibility review)
+
+    private static func applyExternalBlocks(_ bundle: ExternalFactorBundle, into blocks: inout [String: ContextBlock]) {
+        blocks[ContextBlockKey.capitalFlow] = buildCapitalFlowBlock(bundle)
+        blocks[ContextBlockKey.valuation] = buildValuationBlock(bundle)
+        blocks[ContextBlockKey.dragonTiger] = buildDragonTigerBlock(bundle)
+        blocks[ContextBlockKey.limitUp] = buildLimitUpBlock(bundle)
+        blocks[ContextBlockKey.sector] = buildSectorBlock(bundle)
+        blocks[ContextBlockKey.announcements] = buildAnnouncementsBlock(bundle)
+        blocks[ContextBlockKey.sentiment] = buildSentimentBlock(bundle)
+        // Only overwrite the weighted `fundamentals` block when we actually
+        // have data — a failed external fundamentals fetch falls back to the
+        // `not_supported` baseline rather than `fetch_failed`, so enabling
+        // external data can never drop `overall_score` below the MVP floor
+        // for a merely flaky source (that block carries a quality weight; the
+        // unweighted extra blocks above can honestly report `fetch_failed`).
+        if let fundamentals = buildFundamentalsBlock(bundle) {
+            blocks[ContextBlockKey.fundamentals] = fundamentals
+        }
+    }
+
+    private static func externalStatus(_ bundle: ExternalFactorBundle, _ key: String) -> ContextFieldStatus {
+        bundle.statuses[key] ?? .missing
+    }
+
+    private static func degradedExternalBlock(status: ContextFieldStatus, reason: String) -> ContextBlock {
+        ContextBlock(status: status, items: ["value": ContextItem(status: status, missingReason: reason)])
+    }
+
+    private static func buildCapitalFlowBlock(_ bundle: ExternalFactorBundle) -> ContextBlock {
+        let status = externalStatus(bundle, ContextBlockKey.capitalFlow)
+        guard status == .available, let flow = bundle.capitalFlow else {
+            return degradedExternalBlock(status: status, reason: "资金流拉取失败或无数据")
+        }
+        var items: [String: ContextItem] = [
+            "date": ContextItem(status: .available, value: .string(flow.date)),
+            "main_net_inflow": ContextItem(status: .available, value: .double(flow.mainNetInflow)),
+            "consecutive_net_inflow_days": ContextItem(status: .available, value: .int(consecutiveNetInflowDays(bundle.capitalFlowHistory))),
+        ]
+        addOptionalDouble(&items, "main_net_inflow_ratio", flow.mainNetInflowRatio)
+        addOptionalDouble(&items, "super_large_net", flow.superLargeNet)
+        addOptionalDouble(&items, "large_net", flow.largeNet)
+        addOptionalDouble(&items, "medium_net", flow.mediumNet)
+        addOptionalDouble(&items, "small_net", flow.smallNet)
+        return ContextBlock(status: .available, items: items, source: "eastmoney_fund_flow")
+    }
+
+    private static func buildValuationBlock(_ bundle: ExternalFactorBundle) -> ContextBlock {
+        let status = externalStatus(bundle, ContextBlockKey.valuation)
+        guard status == .available, let valuation = bundle.valuation else {
+            return degradedExternalBlock(status: status, reason: "估值/交易面数据拉取失败")
+        }
+        var items: [String: ContextItem] = [:]
+        addOptionalDouble(&items, "turnover_rate", valuation.turnoverRate)
+        addOptionalDouble(&items, "volume_ratio", valuation.volumeRatio)
+        addOptionalDouble(&items, "pe_ttm", valuation.peTTM)
+        addOptionalDouble(&items, "pb", valuation.pb)
+        addOptionalDouble(&items, "total_market_cap", valuation.totalMarketCap)
+        addOptionalDouble(&items, "float_market_cap", valuation.floatMarketCap)
+        return ContextBlock(status: .available, items: items, source: "tencent_valuation")
+    }
+
+    private static func buildDragonTigerBlock(_ bundle: ExternalFactorBundle) -> ContextBlock {
+        let status = externalStatus(bundle, ContextBlockKey.dragonTiger)
+        guard status == .available else {
+            return degradedExternalBlock(status: status, reason: "龙虎榜数据拉取失败")
+        }
+        guard let latest = bundle.dragonTiger.first else {
+            return ContextBlock(
+                status: .available,
+                items: ["recent_records": ContextItem(status: .available, value: .int(0))],
+                source: "eastmoney_billboard"
+            )
+        }
+        var items: [String: ContextItem] = [
+            "recent_records": ContextItem(status: .available, value: .int(bundle.dragonTiger.count)),
+            "latest_date": ContextItem(status: .available, value: .string(latest.date)),
+        ]
+        if let explanation = latest.explanation {
+            items["latest_explanation"] = ContextItem(status: .available, value: .string(explanation))
+        }
+        addOptionalDouble(&items, "latest_net_buy", latest.netBuy)
+        return ContextBlock(status: .available, items: items, source: "eastmoney_billboard")
+    }
+
+    private static func buildLimitUpBlock(_ bundle: ExternalFactorBundle) -> ContextBlock {
+        let status = externalStatus(bundle, ContextBlockKey.limitUp)
+        guard status == .available, let limit = bundle.limitUp else {
+            return degradedExternalBlock(status: status, reason: "涨跌停数据拉取失败")
+        }
+        var items: [String: ContextItem] = [
+            "is_limit_up": ContextItem(status: .available, value: .bool(limit.isLimitUp)),
+            "is_limit_down": ContextItem(status: .available, value: .bool(limit.isLimitDown)),
+        ]
+        if let boards = limit.boardCount { items["board_count"] = ContextItem(status: .available, value: .int(boards)) }
+        if let openTimes = limit.openTimes { items["open_times"] = ContextItem(status: .available, value: .int(openTimes)) }
+        if let firstSeal = limit.firstSealTime { items["first_seal_time"] = ContextItem(status: .available, value: .string(firstSeal)) }
+        if let industry = limit.industry { items["industry"] = ContextItem(status: .available, value: .string(industry)) }
+        return ContextBlock(status: .available, items: items, source: "eastmoney_limit_pool")
+    }
+
+    private static func buildSectorBlock(_ bundle: ExternalFactorBundle) -> ContextBlock {
+        let status = externalStatus(bundle, ContextBlockKey.sector)
+        guard status == .available || status == .partial, let sector = bundle.sector else {
+            return degradedExternalBlock(status: status, reason: "行业板块数据拉取失败")
+        }
+        var items: [String: ContextItem] = [:]
+        if let name = sector.industryName { items["industry_name"] = ContextItem(status: .available, value: .string(name)) }
+        addOptionalDouble(&items, "main_net_inflow", sector.mainNetInflow)
+        addOptionalDouble(&items, "main_net_inflow_ratio", sector.mainNetInflowRatio)
+        addOptionalDouble(&items, "change_pct", sector.changePct)
+        return ContextBlock(status: status, items: items, source: "eastmoney_sector")
+    }
+
+    private static func buildAnnouncementsBlock(_ bundle: ExternalFactorBundle) -> ContextBlock {
+        let status = externalStatus(bundle, ContextBlockKey.announcements)
+        guard status == .available else {
+            return degradedExternalBlock(status: status, reason: "公告数据拉取失败")
+        }
+        var items: [String: ContextItem] = [
+            "count": ContextItem(status: .available, value: .int(bundle.announcements.count)),
+        ]
+        for (index, item) in bundle.announcements.prefix(5).enumerated() {
+            let label = [item.date, item.type, item.title].compactMap { $0 }.joined(separator: " · ")
+            items["item_\(index + 1)"] = ContextItem(status: .available, value: .string(label))
+        }
+        return ContextBlock(status: .available, items: items, source: "eastmoney_announcements")
+    }
+
+    private static func buildSentimentBlock(_ bundle: ExternalFactorBundle) -> ContextBlock {
+        let status = externalStatus(bundle, ContextBlockKey.sentiment)
+        guard status == .available, let sentiment = bundle.sentiment else {
+            return degradedExternalBlock(status: status, reason: "情绪面数据不足，无法衍生")
+        }
+        var items: [String: ContextItem] = [
+            "score": ContextItem(status: .available, value: .int(sentiment.score)),
+            "label": ContextItem(status: .available, value: .string(sentiment.label)),
+        ]
+        if !sentiment.drivers.isEmpty {
+            items["drivers"] = ContextItem(status: .available, value: .string(sentiment.drivers.joined(separator: "、")))
+        }
+        return ContextBlock(status: .available, items: items, source: "on_device_sentiment")
+    }
+
+    /// Returns `nil` when there's no fundamentals data, so the caller keeps
+    /// the `not_supported` baseline instead of dropping to `fetch_failed`.
+    private static func buildFundamentalsBlock(_ bundle: ExternalFactorBundle) -> ContextBlock? {
+        guard let fundamentals = bundle.fundamentals, fundamentals.hasAnyValue else { return nil }
+        var items: [String: ContextItem] = [:]
+        addOptionalDouble(&items, "pe_ttm", fundamentals.peTTM)
+        addOptionalDouble(&items, "pb", fundamentals.pb)
+        addOptionalDouble(&items, "total_market_cap", fundamentals.totalMarketCap)
+        if let type = fundamentals.forecastType { items["forecast_type"] = ContextItem(status: .available, value: .string(type)) }
+        if let summary = fundamentals.forecastSummary { items["forecast_summary"] = ContextItem(status: .available, value: .string(summary)) }
+        return ContextBlock(status: .available, items: items, source: "eastmoney_fundamentals")
+    }
+
+    private static func consecutiveNetInflowDays(_ history: [CapitalFlowSnapshot]) -> Int {
+        var count = 0
+        for snapshot in history.reversed() {
+            if snapshot.mainNetInflow > 0 { count += 1 } else { break }
+        }
+        return count
+    }
+
+    private static func addOptionalDouble(_ items: inout [String: ContextItem], _ key: String, _ value: Double?) {
+        guard let value else { return }
+        items[key] = ContextItem(status: .available, value: .double(value))
     }
 
     private static func notSupportedBlock(reason: String) -> ContextBlock {

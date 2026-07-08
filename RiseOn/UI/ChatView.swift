@@ -13,18 +13,19 @@ struct ChatView: View {
     @State private var showSettings = false
     @State private var showHistory = false
     @State private var sendTask: Task<Void, Never>?
+    @FocusState private var composerFocused: Bool
 
-    private static let suggestedQuestions = [
-        "现在这只股票的技术面怎么看？",
-        "支撑和阻力在哪里？",
-        "最近的趋势是涨还是跌？",
+    private static let suggestedQuestions: [(icon: String, text: String)] = [
+        ("chart.line.uptrend.xyaxis", "现在这只股票的技术面怎么看？"),
+        ("arrow.up.arrow.down", "支撑和阻力分别在哪里？"),
+        ("scope", "给出结构化的买卖点参考"),
+        ("shield.lefthalf.filled", "当前主要有哪些风险？"),
     ]
 
     var body: some View {
         VStack(spacing: 0) {
             if let workspace {
                 header(workspace)
-                Divider()
                 messagesList(workspace)
                 composer
             } else if let errorMessage {
@@ -34,6 +35,7 @@ struct ChatView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
+        .background(Color(.systemGroupedBackground))
         .navigationTitle("个股问答")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -83,32 +85,57 @@ struct ChatView: View {
         .task { await loadWorkspace() }
     }
 
+    // MARK: - Header
+
     private func header(_ workspace: StockWorkspace) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                Text(workspace.name.isEmpty ? workspace.code : workspace.name)
-                    .font(.headline)
-                Spacer()
+        VStack(spacing: 0) {
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 6) {
+                        Text(workspace.name.isEmpty ? workspace.code : workspace.name)
+                            .font(.headline)
+                            .lineLimit(1)
+                        if !workspace.name.isEmpty {
+                            Text(workspace.code)
+                                .font(.caption.monospaced())
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    if let snapshotDate = workspace.meta.snapshotDate {
+                        Label(
+                            "数据快照 \(snapshotDate.formatted(date: .abbreviated, time: .shortened))",
+                            systemImage: "clock"
+                        )
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .labelStyle(.titleAndIcon)
+                    }
+                }
+                Spacer(minLength: 8)
                 qualityBadge(workspace.meta.quality)
             }
-            if let snapshotDate = workspace.meta.snapshotDate {
-                Text("数据快照：\(snapshotDate.formatted(date: .abbreviated, time: .shortened))")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 11)
+
+            Divider().opacity(0.6)
         }
-        .padding()
         .background(.ultraThinMaterial)
     }
 
     private func qualityBadge(_ quality: String?) -> some View {
         let (label, color) = qualityStyle(quality)
-        return Text(label)
-            .font(.caption2.weight(.semibold))
-            .padding(.horizontal, 8)
-            .padding(.vertical, 3)
-            .background(color.opacity(0.15), in: Capsule())
-            .foregroundStyle(color)
+        return HStack(spacing: 4) {
+            Circle()
+                .fill(color)
+                .frame(width: 6, height: 6)
+            Text(label)
+                .font(.caption2.weight(.semibold))
+        }
+        .padding(.horizontal, 9)
+        .padding(.vertical, 4)
+        .background(color.opacity(0.12), in: Capsule())
+        .foregroundStyle(color)
+        .overlay(Capsule().stroke(color.opacity(0.22), lineWidth: 0.5))
     }
 
     private func qualityStyle(_ quality: String?) -> (String, Color) {
@@ -121,35 +148,38 @@ struct ChatView: View {
         }
     }
 
+    // MARK: - Messages
+
     private func messagesList(_ workspace: StockWorkspace) -> some View {
         let messages = workspace.activeChatThread?.messages ?? []
         return ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 12) {
+                LazyVStack(alignment: .leading, spacing: 16) {
                     if messages.isEmpty && !isStreaming {
-                        emptyState
+                        emptyState(workspace)
                     } else {
                         ForEach(messages.indices, id: \.self) { index in
                             MessageBubble(message: messages[index])
                                 .id(index)
                         }
                         if isStreaming {
-                            MessageBubble(message: ChatMessage(role: .assistant, content: streamingText))
-                                .id("streaming")
                             if streamingText.isEmpty {
-                                streamingIndicator
+                                TypingBubble()
+                                    .id("streaming")
+                            } else {
+                                MessageBubble(message: ChatMessage(role: .assistant, content: streamingText))
+                                    .id("streaming")
                             }
                         }
                     }
                     if let errorMessage {
-                        Text(errorMessage)
-                            .font(.caption)
-                            .foregroundStyle(.red)
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                        errorCard(errorMessage)
                     }
                 }
-                .padding()
+                .padding(.horizontal, 16)
+                .padding(.vertical, 18)
             }
+            .scrollDismissesKeyboard(.interactively)
             .onChange(of: streamingText) {
                 withAnimation(.easeOut(duration: 0.15)) {
                     if isStreaming {
@@ -169,68 +199,152 @@ struct ChatView: View {
         }
     }
 
-    private var streamingIndicator: some View {
-        HStack {
-            ProgressView().controlSize(.small)
-            Spacer()
+    private func errorCard(_ message: String) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.callout)
+                .foregroundStyle(.orange)
+            Text(message)
+                .font(.callout)
+                .foregroundStyle(.primary)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
         }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.orange.opacity(0.25), lineWidth: 0.5))
+    }
+
+    // MARK: - Empty state
+
+    private func emptyState(_ workspace: StockWorkspace) -> some View {
+        let name = workspace.name.isEmpty ? workspace.code : workspace.name
+        return VStack(spacing: 22) {
+            VStack(spacing: 14) {
+                ZStack {
+                    Circle()
+                        .fill(
+                            LinearGradient(
+                                colors: [.blue, .teal],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                        .frame(width: 60, height: 60)
+                        .shadow(color: .blue.opacity(0.28), radius: 10, y: 4)
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 26, weight: .semibold))
+                        .foregroundStyle(.white)
+                }
+                VStack(spacing: 5) {
+                    Text("和「\(name)」聊聊")
+                        .font(.title3.weight(.semibold))
+                    Text("基于端上的行情、指标与规则评分作答，不含实时新闻。选一个开始，或直接输入问题。")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .padding(.top, 28)
+
+            VStack(spacing: 10) {
+                ForEach(Self.suggestedQuestions, id: \.text) { suggestion in
+                    suggestionCard(icon: suggestion.icon, text: suggestion.text)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity)
         .padding(.horizontal, 4)
     }
 
-    private var emptyState: some View {
-        VStack(spacing: 16) {
-            ContentUnavailableView(
-                "还没有对话",
-                systemImage: "message",
-                description: Text("试试下面这些问题，或者直接输入你自己的问题")
-            )
-            VStack(alignment: .leading, spacing: 8) {
-                ForEach(Self.suggestedQuestions, id: \.self) { suggestion in
-                    Button {
-                        question = suggestion
-                    } label: {
-                        Text(suggestion)
-                            .font(.subheadline)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
-                            .background(Color(.secondarySystemBackground), in: Capsule())
-                            .foregroundStyle(.primary)
-                    }
-                }
+    private func suggestionCard(icon: String, text: String) -> some View {
+        Button {
+            question = text
+            composerFocused = true
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: icon)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(.tint)
+                    .frame(width: 26)
+                Text(text)
+                    .font(.subheadline)
+                    .foregroundStyle(.primary)
+                    .multilineTextAlignment(.leading)
+                Spacer(minLength: 4)
+                Image(systemName: "arrow.up.left")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.tertiary)
             }
+            .padding(.vertical, 13)
+            .padding(.horizontal, 14)
             .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 14))
+            .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.primary.opacity(0.05), lineWidth: 0.5))
         }
-        .padding(.top, 16)
+        .buttonStyle(.plain)
     }
+
+    // MARK: - Composer
 
     private var composer: some View {
-        HStack(alignment: .bottom, spacing: 8) {
-            TextField("输入你的问题", text: $question, axis: .vertical)
-                .lineLimit(1...4)
-                .disabled(isStreaming)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 10)
-                .background(Color(.secondarySystemBackground), in: Capsule())
+        VStack(spacing: 0) {
+            Divider().opacity(0.6)
+            HStack(alignment: .bottom, spacing: 10) {
+                TextField("输入你的问题…", text: $question, axis: .vertical)
+                    .lineLimit(1...5)
+                    .focused($composerFocused)
+                    .disabled(isStreaming)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 20))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 20)
+                            .stroke(Color.primary.opacity(0.08), lineWidth: 0.5)
+                    )
 
-            Button {
-                if isStreaming {
-                    stopStreaming()
-                } else {
-                    sendQuestion()
-                }
-            } label: {
-                Image(systemName: isStreaming ? "stop.fill" : "arrow.up")
-                    .font(.body.weight(.semibold))
-                    .frame(width: 32, height: 32)
+                sendButton
             }
-            .buttonStyle(.borderedProminent)
-            .clipShape(Circle())
-            .disabled(!isStreaming && question.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            .accessibilityLabel(isStreaming ? "停止生成" : "发送问题")
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
         }
-        .padding()
         .background(.bar)
     }
+
+    private var sendButton: some View {
+        let canSend = !question.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        return Button {
+            if isStreaming {
+                stopStreaming()
+            } else {
+                sendQuestion()
+            }
+        } label: {
+            Image(systemName: isStreaming ? "stop.fill" : "arrow.up")
+                .font(.system(size: 16, weight: .bold))
+                .foregroundStyle(.white)
+                .frame(width: 36, height: 36)
+                .background(sendButtonBackground(canSend: canSend), in: Circle())
+        }
+        .disabled(!isStreaming && !canSend)
+        .animation(.easeInOut(duration: 0.15), value: canSend)
+        .animation(.easeInOut(duration: 0.15), value: isStreaming)
+        .accessibilityLabel(isStreaming ? "停止生成" : "发送问题")
+    }
+
+    private func sendButtonBackground(canSend: Bool) -> AnyShapeStyle {
+        if isStreaming {
+            return AnyShapeStyle(Color.red.gradient)
+        }
+        if canSend {
+            return AnyShapeStyle(Color.accentColor.gradient)
+        }
+        return AnyShapeStyle(Color(.systemGray3))
+    }
+
+    // MARK: - Logic (unchanged)
 
     private func loadWorkspace() async {
         do {
@@ -295,6 +409,8 @@ struct ChatView: View {
     }
 }
 
+// MARK: - Message bubble
+
 private struct MessageBubble: View {
     let message: ChatMessage
 
@@ -307,9 +423,9 @@ private struct MessageBubble: View {
                     bubble
                     timestamp(alignment: .leading)
                 }
-                Spacer(minLength: 36)
+                Spacer(minLength: 32)
             } else {
-                Spacer(minLength: 36)
+                Spacer(minLength: 32)
                 VStack(alignment: .trailing, spacing: 4) {
                     senderLabel
                     bubble
@@ -326,7 +442,11 @@ private struct MessageBubble: View {
             .padding(.vertical, message.role == .assistant ? 12 : 10)
             .background(bubbleBackground)
             .clipShape(bubbleShape)
-            .shadow(color: shadowColor, radius: message.role == .assistant ? 8 : 3, y: 2)
+            .overlay(
+                bubbleShape
+                    .stroke(Color.primary.opacity(message.role == .assistant ? 0.05 : 0), lineWidth: 0.5)
+            )
+            .shadow(color: shadowColor, radius: message.role == .assistant ? 5 : 4, y: 2)
             .textSelection(.enabled)
             .contextMenu {
                 Button {
@@ -354,25 +474,81 @@ private struct MessageBubble: View {
 
     private var bubbleBackground: some ShapeStyle {
         if message.role == .assistant {
-            AnyShapeStyle(.regularMaterial)
+            AnyShapeStyle(Color(.secondarySystemGroupedBackground))
         } else {
             AnyShapeStyle(Color.accentColor.gradient)
         }
     }
 
     private var shadowColor: Color {
-        message.role == .assistant ? Color.black.opacity(0.08) : Color.accentColor.opacity(0.18)
+        message.role == .assistant ? Color.black.opacity(0.06) : Color.accentColor.opacity(0.18)
     }
 
     private var bubbleShape: some Shape {
         UnevenRoundedRectangle(
-            topLeadingRadius: 16,
-            bottomLeadingRadius: message.role == .assistant ? 4 : 16,
-            bottomTrailingRadius: message.role == .assistant ? 16 : 4,
-            topTrailingRadius: 16
+            topLeadingRadius: 18,
+            bottomLeadingRadius: message.role == .assistant ? 5 : 18,
+            bottomTrailingRadius: message.role == .assistant ? 18 : 5,
+            topTrailingRadius: 18
         )
     }
 }
+
+// MARK: - Typing indicator
+
+private struct TypingBubble: View {
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            ChatAvatar(role: .assistant)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("RiseOn")
+                    .font(.caption2.weight(.medium))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 2)
+                TypingDots()
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 14)
+                    .background(
+                        UnevenRoundedRectangle(
+                            topLeadingRadius: 18,
+                            bottomLeadingRadius: 5,
+                            bottomTrailingRadius: 18,
+                            topTrailingRadius: 18
+                        )
+                        .fill(Color(.secondarySystemGroupedBackground))
+                    )
+                    .shadow(color: .black.opacity(0.06), radius: 5, y: 2)
+            }
+            Spacer(minLength: 32)
+        }
+        .accessibilityLabel("正在生成回复")
+    }
+}
+
+private struct TypingDots: View {
+    @State private var animating = false
+
+    var body: some View {
+        HStack(spacing: 5) {
+            ForEach(0..<3, id: \.self) { index in
+                Circle()
+                    .frame(width: 7, height: 7)
+                    .foregroundStyle(.secondary)
+                    .opacity(animating ? 1 : 0.3)
+                    .scaleEffect(animating ? 1 : 0.7)
+                    .animation(
+                        .easeInOut(duration: 0.55)
+                            .repeatForever()
+                            .delay(Double(index) * 0.18),
+                        value: animating
+                    )
+            }
+        }
+        .onAppear { animating = true }
+    }
+}
+
+// MARK: - Avatar
 
 private struct ChatAvatar: View {
     let role: ChatRole
