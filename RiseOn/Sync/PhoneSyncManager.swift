@@ -4,7 +4,7 @@ import WatchConnectivity
 final class PhoneSyncManager: NSObject {
     static let shared = PhoneSyncManager()
 
-    private var pendingItems: [WatchlistItem]?
+    private var latestItems: [WatchlistItem]?
 
     private override init() {
         super.init()
@@ -26,23 +26,38 @@ final class PhoneSyncManager: NSObject {
     }
 
     func push(items: [WatchlistItem]) {
+        latestItems = items
+
         guard WCSession.isSupported() else {
             return
         }
 
         let session = WCSession.default
         guard session.activationState == .activated else {
-            pendingItems = items
-            print("[PhoneSyncManager] Session is not activated; skipping watchlist push")
+            print("[PhoneSyncManager] Session is not activated; will push watchlist after activation")
             return
         }
 
-        let payload = items.map { ["code": $0.code, "name": $0.name] }
+        let context = WatchlistSyncPayload.context(for: items)
         do {
-            try session.updateApplicationContext(["watchlist_items": payload])
-            print("[PhoneSyncManager] Pushed watchlist items: \(items.map(\.code))")
+            try session.updateApplicationContext(context)
+            print("[PhoneSyncManager] Updated watchlist context: \(items.map(\.code))")
         } catch {
-            print("[PhoneSyncManager] Failed to push watchlist: \(error.localizedDescription)")
+            print("[PhoneSyncManager] Failed to update watchlist context: \(error.localizedDescription)")
+        }
+
+        guard session.isPaired, session.isWatchAppInstalled else {
+            print("[PhoneSyncManager] Watch is not paired or watch app is not installed")
+            return
+        }
+
+        let transfer = session.transferUserInfo(context)
+        print("[PhoneSyncManager] Queued watchlist transfer: \(transfer.isTransferring)")
+
+        if session.isReachable {
+            session.sendMessage(context, replyHandler: nil) { error in
+                print("[PhoneSyncManager] Failed to send live watchlist message: \(error.localizedDescription)")
+            }
         }
     }
 }
@@ -57,9 +72,8 @@ extension PhoneSyncManager: WCSessionDelegate {
             print("[PhoneSyncManager] Activation failed: \(error.localizedDescription)")
         } else {
             print("[PhoneSyncManager] Activated with state: \(activationState.rawValue)")
-            if let pendingItems {
-                self.pendingItems = nil
-                push(items: pendingItems)
+            if let latestItems {
+                push(items: latestItems)
             }
         }
     }

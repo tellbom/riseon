@@ -1,5 +1,8 @@
 import SwiftUI
 import UIKit
+#if ENABLE_LIVE_ACTIVITY && canImport(ActivityKit)
+import ActivityKit
+#endif
 
 enum ChatLoadingPresentation {
     static func shouldShowAnswerSpinner(isStreaming: Bool, streamingText: String, thinkingLines: [String]) -> Bool {
@@ -20,6 +23,11 @@ struct ChatView: View {
     @State private var showSettings = false
     @State private var showHistory = false
     @State private var sendTask: Task<Void, Never>?
+    @State private var backgroundTaskID: UIBackgroundTaskIdentifier = .invalid
+#if ENABLE_LIVE_ACTIVITY && canImport(ActivityKit)
+    @State private var chatLiveActivity: Activity<ChatActivityAttributes>?
+    @State private var lastLiveActivityCharacterCount = 0
+#endif
     @FocusState private var composerFocused: Bool
 
     private static let suggestedQuestions: [(icon: String, text: String)] = [
@@ -403,9 +411,19 @@ struct ChatView: View {
         errorMessage = nil
         streamingText = ""
         thinkingLines = []
+        var diagnostics = LLMStreamDiagnostics()
+        beginBackgroundWait()
+        await startChatLiveActivityIfNeeded(question: question, workspace: current)
+        await updateChatLiveActivity(
+            phase: .preparing,
+            statusText: "准备发送问题",
+            diagnostics: diagnostics,
+            force: true
+        )
 
         let settings = LLMConfigurationStore.load()
         let options = PromptBuilder.Options(webSearchEnabled: settings.webSearchEnabled)
+        var completedSuccessfully = false
 
         do {
             let service = try LLMConfigurationStore.makeService(settings: settings)
@@ -426,10 +444,31 @@ struct ChatView: View {
                     switch event {
                     case .searching(let query):
                         thinkingLines.append("🔎 正在检索：\(query)")
+                        await updateChatLiveActivity(
+                            phase: .searching,
+                            statusText: "正在检索舆情",
+                            diagnostics: diagnostics,
+                            force: true
+                        )
                     case .searchDone(let summary):
                         thinkingLines.append("已汇总：\(summary)")
+                        await updateChatLiveActivity(
+                            phase: .waitingForModel,
+                            statusText: "检索完成，等待模型真实输出",
+                            diagnostics: diagnostics,
+                            force: true
+                        )
                     case .answerDelta(let delta):
+                        diagnostics.record(delta: delta)
                         streamingText += delta
+                        if diagnostics.isLikelyBuffered {
+                            appendBufferedDiagnosticIfNeeded()
+                        }
+                        await updateChatLiveActivity(
+                            phase: .streaming,
+                            statusText: diagnostics.isLikelyBuffered ? "接口疑似缓冲，已收到一段完整输出" : "模型正在真实输出",
+                            diagnostics: diagnostics
+                        )
                     }
                 }
 
@@ -437,21 +476,38 @@ struct ChatView: View {
                     try WorkspaceChatService.finalizeStreamedAnswer(streamingText, in: &current)
                     workspace = current
                     try await workspaceStore.save(current)
+                    completedSuccessfully = true
                 }
             } else {
                 let stream = try WorkspaceChatService.streamAsk(question, in: &current, llmService: service, options: options)
                 workspace = current
                 try await workspaceStore.save(current)
+                await updateChatLiveActivity(
+                    phase: .waitingForModel,
+                    statusText: "等待模型真实输出",
+                    diagnostics: diagnostics,
+                    force: true
+                )
 
                 for try await delta in stream {
                     if Task.isCancelled { break }
+                    diagnostics.record(delta: delta)
                     streamingText += delta
+                    if diagnostics.isLikelyBuffered {
+                        appendBufferedDiagnosticIfNeeded()
+                    }
+                    await updateChatLiveActivity(
+                        phase: .streaming,
+                        statusText: diagnostics.isLikelyBuffered ? "接口疑似缓冲，已收到一段完整输出" : "模型正在真实输出",
+                        diagnostics: diagnostics
+                    )
                 }
 
                 if !streamingText.isEmpty {
                     try WorkspaceChatService.finalizeStreamedAnswer(streamingText, in: &current)
                     workspace = current
                     try await workspaceStore.save(current)
+                    completedSuccessfully = true
                 }
             }
         } catch {
@@ -466,11 +522,81 @@ struct ChatView: View {
             }
         }
 
+        if completedSuccessfully {
+            await endChatLiveActivity(succeeded: true, statusText: "回复完成", diagnostics: diagnostics)
+        } else {
+            await endChatLiveActivity(succeeded: false, statusText: Task.isCancelled ? "已停止生成" : "回复失败", diagnostics: diagnostics)
+        }
+        endBackgroundWait()
         streamingText = ""
         thinkingLines = []
         isStreaming = false
         sendTask = nil
     }
+
+    private func appendBufferedDiagnosticIfNeeded() {
+        let line = "流式诊断：当前接口疑似缓冲，前台只会显示真实收到的模型输出，不做假打字。"
+        if !thinkingLines.contains(line) {
+            thinkingLines.append(line)
+        }
+    }
+
+    private func beginBackgroundWait() {
+        guard backgroundTaskID == .invalid else { return }
+        backgroundTaskID = UIApplication.shared.beginBackgroundTask(withName: "RiseOn LLM Reply") {
+            endBackgroundWait()
+        }
+    }
+
+    private func endBackgroundWait() {
+        guard backgroundTaskID != .invalid else { return }
+        UIApplication.shared.endBackgroundTask(backgroundTaskID)
+        backgroundTaskID = .invalid
+    }
+
+#if ENABLE_LIVE_ACTIVITY && canImport(ActivityKit)
+    private func startChatLiveActivityIfNeeded(question: String, workspace: StockWorkspace) async {
+        guard chatLiveActivity == nil else { return }
+        guard #available(iOS 16.2, *), ActivityAuthorizationInfo().areActivitiesEnabled else { return }
+        let name = workspace.name.isEmpty ? workspace.code : workspace.name
+        chatLiveActivity = try? ChatLiveActivityController.start(code: workspace.code, name: name, question: question)
+        lastLiveActivityCharacterCount = 0
+    }
+
+    private func updateChatLiveActivity(
+        phase: ChatActivityAttributes.ContentState.Phase,
+        statusText: String,
+        diagnostics: LLMStreamDiagnostics,
+        force: Bool = false
+    ) async {
+        guard #available(iOS 16.2, *), let chatLiveActivity else { return }
+        let characterDelta = diagnostics.receivedCharacterCount - lastLiveActivityCharacterCount
+        guard force || characterDelta >= 120 || diagnostics.deltaCount <= 1 else { return }
+        await ChatLiveActivityController.update(
+            chatLiveActivity,
+            phase: phase,
+            statusText: statusText,
+            diagnostics: diagnostics
+        )
+        lastLiveActivityCharacterCount = diagnostics.receivedCharacterCount
+    }
+
+    private func endChatLiveActivity(succeeded: Bool, statusText: String, diagnostics: LLMStreamDiagnostics) async {
+        guard #available(iOS 16.2, *), let chatLiveActivity else { return }
+        await ChatLiveActivityController.end(
+            chatLiveActivity,
+            succeeded: succeeded,
+            statusText: statusText,
+            diagnostics: diagnostics
+        )
+        self.chatLiveActivity = nil
+        lastLiveActivityCharacterCount = 0
+    }
+#else
+    private func startChatLiveActivityIfNeeded(question: String, workspace: StockWorkspace) async {}
+    private func updateChatLiveActivity(phase: Never, statusText: String, diagnostics: LLMStreamDiagnostics, force: Bool = false) async {}
+    private func endChatLiveActivity(succeeded: Bool, statusText: String, diagnostics: LLMStreamDiagnostics) async {}
+#endif
 }
 
 // MARK: - Message bubble

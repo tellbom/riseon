@@ -65,6 +65,40 @@ public enum LLMStreamEvent: Sendable {
     case answerDelta(String)
 }
 
+public struct LLMStreamDiagnostics: Equatable, Sendable {
+    public private(set) var startedAt: Date
+    public private(set) var firstDeltaAt: Date?
+    public private(set) var deltaCount: Int
+    public private(set) var receivedCharacterCount: Int
+    public private(set) var largestDeltaCharacterCount: Int
+
+    public init(startedAt: Date = Date()) {
+        self.startedAt = startedAt
+        self.firstDeltaAt = nil
+        self.deltaCount = 0
+        self.receivedCharacterCount = 0
+        self.largestDeltaCharacterCount = 0
+    }
+
+    public var secondsToFirstDelta: TimeInterval? {
+        firstDeltaAt.map { $0.timeIntervalSince(startedAt) }
+    }
+
+    public var isLikelyBuffered: Bool {
+        deltaCount == 1 && largestDeltaCharacterCount >= 800
+    }
+
+    public mutating func record(delta: String, receivedAt: Date = Date()) {
+        if firstDeltaAt == nil {
+            firstDeltaAt = receivedAt
+        }
+        let count = delta.count
+        deltaCount += 1
+        receivedCharacterCount += count
+        largestDeltaCharacterCount = max(largestDeltaCharacterCount, count)
+    }
+}
+
 /// Structured failure states (task.md S10.2), **inspired by** —not a literal
 /// 1:1 port of— `GenerationErrorCode`. Most of that Python enum
 /// (`COMMAND_NOT_FOUND`, `COMMAND_NOT_EXECUTABLE`, `INTERACTIVE_PROMPT_REQUIRED`,

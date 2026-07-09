@@ -29,18 +29,7 @@ final class WatchSyncManager: NSObject {
     }
 
     private func applyContext(_ context: [String: Any]) {
-        let items: [WatchlistItem]
-
-        if let payload = context["watchlist_items"] as? [[String: String]] {
-            items = payload.compactMap { dictionary in
-                guard let code = dictionary["code"] else {
-                    return nil
-                }
-                return WatchlistItem(code: code, name: dictionary["name"] ?? "")
-            }
-        } else if let codes = context["watchlist"] as? [String] {
-            items = codes.map { WatchlistItem(code: $0) }
-        } else {
+        guard let items = WatchlistSyncPayload.items(from: context) else {
             return
         }
 
@@ -70,6 +59,14 @@ extension WatchSyncManager: WCSessionDelegate {
         didReceiveApplicationContext applicationContext: [String: Any]
     ) {
         applyContext(applicationContext)
+    }
+
+    func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any]) {
+        applyContext(userInfo)
+    }
+
+    func session(_ session: WCSession, didReceiveMessage message: [String: Any]) {
+        applyContext(message)
     }
 
 #if os(iOS)
