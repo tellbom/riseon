@@ -10,6 +10,11 @@ final class AnthropicLLMServiceTests: XCTestCase {
 
     private func data(_ s: String) -> Data { Data(s.utf8) }
 
+    func test_defaultConfiguration_allowsSlowToolRoundFinalAnswer() {
+        let configuration = AnthropicLLMService.Configuration(model: "claude-sonnet-4-6")
+        XCTAssertGreaterThanOrEqual(configuration.timeoutSeconds, 180)
+    }
+
     // MARK: - Status-code mapping (shared with OpenAICompatibleLLMService via LLMServiceError.mapped)
 
     func test_statusCode2xx_mapsToNoError() {

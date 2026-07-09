@@ -1,6 +1,12 @@
 import SwiftUI
 import UIKit
 
+enum ChatLoadingPresentation {
+    static func shouldShowAnswerSpinner(isStreaming: Bool, streamingText: String, thinkingLines: [String]) -> Bool {
+        isStreaming && streamingText.isEmpty && !thinkingLines.isEmpty
+    }
+}
+
 struct ChatView: View {
     let code: String
     let workspaceStore: WorkspaceStore
@@ -164,8 +170,13 @@ struct ChatView: View {
                                 .id(index)
                         }
                         if isStreaming {
+                            let showAnswerSpinner = ChatLoadingPresentation.shouldShowAnswerSpinner(
+                                isStreaming: isStreaming,
+                                streamingText: streamingText,
+                                thinkingLines: thinkingLines
+                            )
                             if !thinkingLines.isEmpty {
-                                ThinkingBubbles(lines: thinkingLines)
+                                ThinkingBubbles(lines: thinkingLines, isGeneratingAnswer: showAnswerSpinner)
                                     .id("thinking")
                             }
                             if streamingText.isEmpty {
@@ -551,6 +562,7 @@ private struct MessageBubble: View {
 
 private struct ThinkingBubbles: View {
     let lines: [String]
+    let isGeneratingAnswer: Bool
 
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
@@ -566,6 +578,18 @@ private struct ThinkingBubbles: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
+                    }
+                    if isGeneratingAnswer {
+                        Divider().opacity(0.5)
+                        HStack(spacing: 8) {
+                            Text("正在生成回复")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            TypingDots()
+                                .scaleEffect(0.72, anchor: .leading)
+                                .frame(width: 42, height: 12, alignment: .leading)
+                        }
+                        .accessibilityLabel("正在生成回复")
                     }
                 }
                 .padding(.horizontal, 14)

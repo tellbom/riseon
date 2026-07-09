@@ -30,7 +30,7 @@ public actor AnthropicLLMService: LLMService {
         public init(
             endpoint: URL = URL(string: "https://api.anthropic.com/v1/messages")!,
             model: String,
-            timeoutSeconds: TimeInterval = 60,
+            timeoutSeconds: TimeInterval = 180,
             maxTokens: Int = 4096,
             webSearch: WebSearchToolOptions? = nil
         ) {
